@@ -29,6 +29,7 @@ defmodule DatastarEx.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:server_sent_events, "~> 1.1", only: :test, runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.0", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.0", only: [:dev, :test], runtime: false},
