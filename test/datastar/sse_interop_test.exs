@@ -72,7 +72,7 @@ defmodule Datastar.SSEInteropTest do
       binary = encode_binary(%{data: "héllo\n﻿"})
 
       for split <- 1..(byte_size(binary) - 1) do
-        <<a::binary-size(split), b::binary>> = binary
+        <<a::binary-size(^split), b::binary>> = binary
         assert decode([a, b]) == decode([binary]), "differs at split #{split}"
       end
     end

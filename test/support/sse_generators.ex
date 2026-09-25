@@ -16,29 +16,56 @@ defmodule Datastar.SSE.Generators do
     frequency([
       {5, string(:utf8)},
       {2,
-       member_of(["", "\n", "\n\n", "\r", "\r\n", "one\n", "one\r\ntwo\r", " lead", ":colon"])},
+       member_of([
+         "",
+         "\n",
+         "\n\n",
+         "\r",
+         "\r\n",
+         "one\n",
+         "one\r\ntwo\r",
+         " lead",
+         ":colon",
+         "\0",
+         "a\0b"
+       ])},
       {3, multiline}
     ])
   end
 
   # Valid by construction: build from codepoints that exclude CR and LF,
-  # rather than filtering broad strings (spec §12.1).
+  # rather than filtering broad strings (spec §12.1). ASCII and targeted
+  # injection-prone constants are weighted in because uniform Unicode
+  # almost never produces colons, spaces, or NULL.
   def event_name do
-    string(safe_codepoint_ranges(), max_length: 30)
+    frequency([
+      {3, string(safe_codepoint_ranges(), max_length: 30)},
+      {3, string(:ascii, max_length: 30)},
+      {2, member_of(["", " lead", "a:b", ":x", "a\0b", "update"])}
+    ])
   end
 
   def id do
-    string(safe_codepoint_ranges(), max_length: 30)
+    frequency([
+      {3, string(safe_codepoint_ranges(), max_length: 30)},
+      {3, string(:ascii, max_length: 30)},
+      {2, member_of(["", " lead", "a:b", ":x", "42"])}
+    ])
   end
 
-  # All Unicode scalar values except NULL, LF, CR, and surrogates.
+  # All Unicode scalar values except NULL, LF, CR, and surrogates. NULL is
+  # legal in :event (added via the constants above) but never in :id.
   defp safe_codepoint_ranges do
     [0x01..0x09, 0x0B..0x0C, 0x0E..0xD7FF, 0xE000..0x10FFFF]
   end
 
+  def retry do
+    one_of([non_negative_integer(), integer(0..9_999_999_999_999)])
+  end
+
   def event do
     bind(data(), fn data ->
-      %{event: event_name(), id: id(), retry: non_negative_integer()}
+      %{event: event_name(), id: id(), retry: retry()}
       |> optional_map()
       |> map(&Map.put(&1, :data, data))
     end)

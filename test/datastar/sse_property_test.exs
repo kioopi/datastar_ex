@@ -5,6 +5,21 @@ defmodule Datastar.SSEPropertyTest do
   alias Datastar.SSE.Generators
   alias Datastar.SSE.WhatwgEventStreamModel, as: Model
 
+  test "generators cover injection-prone and boundary shapes" do
+    events = Enum.take(Generators.event(), 1_000)
+    names = Enum.flat_map(events, &(Map.take(&1, [:event, :id]) |> Map.values()))
+
+    assert Enum.any?(names, &String.contains?(&1, ":")), "no colon in any event/id"
+    assert Enum.any?(names, &String.starts_with?(&1, " ")), "no leading space in any event/id"
+    assert Enum.any?(names, &(&1 =~ ~r/[a-zA-Z]/)), "no ASCII letters in any event/id"
+
+    assert Enum.any?(events, &String.contains?(Map.get(&1, :event, ""), "\0")),
+           "no NULL in any :event"
+
+    assert Enum.any?(events, &String.contains?(&1.data, "\0")), "no NULL in any :data"
+    assert Enum.any?(events, &(Map.get(&1, :retry, 0) > 1_000)), "no large :retry"
+  end
+
   property "valid events survive canonical encoding and independent decoding" do
     check all(event <- Generators.event()) do
       assert decode([encode_binary(event)]) == [normalize(event)]
@@ -48,7 +63,21 @@ defmodule Datastar.SSEPropertyTest do
       assert decode(split_by_sizes(binary, sizes)) == Enum.map(events, &normalize/1)
 
       interpreted = Model.interpret(binary)
-      assert length(interpreted.events) == length(events)
+
+      {expected_events, _last_id} =
+        Enum.map_reduce(events, "", fn event, last_id ->
+          id = Map.get(event, :id, last_id)
+
+          type =
+            case Map.get(event, :event, "") do
+              "" -> "message"
+              custom -> custom
+            end
+
+          {%{type: type, data: normalize(event).data, last_event_id: id}, id}
+        end)
+
+      assert interpreted.events == expected_events
 
       expected_retry =
         events
@@ -98,7 +127,7 @@ defmodule Datastar.SSEPropertyTest do
           {:halt, {[rest | acc], ""}}
 
         _ ->
-          <<chunk::binary-size(size), remainder::binary>> = rest
+          <<chunk::binary-size(^size), remainder::binary>> = rest
           {:cont, {[chunk | acc], remainder}}
       end
     end)
