@@ -9,7 +9,7 @@ defmodule DatastarEx.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      dialyzer: [plt_add_apps: [:ex_unit]],
+      dialyzer: [plt_add_apps: [:ex_unit, :stream_data]],
       aliases: aliases()
     ]
   end
@@ -34,6 +34,7 @@ defmodule DatastarEx.MixProject do
   defp deps do
     [
       {:server_sent_events, "~> 1.1", only: :test, runtime: false},
+      {:stream_data, "~> 1.4", only: :test, runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.0", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.0", only: [:dev, :test], runtime: false},
