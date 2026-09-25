@@ -111,6 +111,31 @@ defmodule Datastar.SSE do
     end
   end
 
+  @doc """
+  Serializes comment text into canonical SSE comment lines.
+
+  Comment lines are ignored by conforming SSE parsers; a transport layer
+  may send them as heartbeats. No blank line is appended, so a comment
+  never terminates a pending event.
+
+  ## Examples
+
+      iex> Datastar.SSE.encode_comment("keep-alive") |> IO.iodata_to_binary()
+      ": keep-alive\\n"
+
+  """
+  @spec encode_comment(String.t()) :: iodata()
+  def encode_comment(comment) do
+    unless is_binary(comment) and String.valid?(comment) do
+      raise ArgumentError, "invalid SSE comment: must be a valid UTF-8 binary"
+    end
+
+    comment
+    |> normalize_newlines()
+    |> String.split("\n", trim: false)
+    |> Enum.map(&[": ", &1, "\n"])
+  end
+
   defp optional_line(event, key) do
     case event do
       %{^key => value} -> [Atom.to_string(key), ": ", value, "\n"]

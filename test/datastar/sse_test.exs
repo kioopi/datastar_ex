@@ -189,7 +189,43 @@ defmodule Datastar.SSETest do
     end
   end
 
+  describe "encode_comment/1" do
+    test "single-line comment encodes as one colon-prefixed line, no blank line" do
+      assert comment_to_binary("keep-alive") == ": keep-alive\n"
+    end
+
+    test "empty comment encodes as a single empty comment line" do
+      assert comment_to_binary("") == ": \n"
+    end
+
+    test "multiline comment becomes one comment line per logical line" do
+      assert comment_to_binary("one\ntwo") == ": one\n: two\n"
+    end
+
+    test "CRLF and CR in comments normalize to LF" do
+      assert comment_to_binary("one\r\ntwo\rthree") == ": one\n: two\n: three\n"
+    end
+
+    test "trailing empty logical lines are preserved" do
+      assert comment_to_binary("x\n") == ": x\n: \n"
+    end
+
+    test "rejects malformed UTF-8 and non-binary comments" do
+      assert_raise ArgumentError, ~r/invalid SSE comment/, fn ->
+        Datastar.SSE.encode_comment(<<0xFF>>)
+      end
+
+      assert_raise ArgumentError, ~r/invalid SSE comment/, fn ->
+        Datastar.SSE.encode_comment(:heartbeat)
+      end
+    end
+  end
+
   defp encode_to_binary(event) do
     event |> Datastar.SSE.encode() |> IO.iodata_to_binary()
+  end
+
+  defp comment_to_binary(comment) do
+    comment |> Datastar.SSE.encode_comment() |> IO.iodata_to_binary()
   end
 end
