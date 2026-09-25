@@ -1,6 +1,8 @@
 defmodule Datastar.SSETest do
   use ExUnit.Case, async: true
 
+  doctest Datastar.SSE
+
   describe "encode/1 canonical bytes" do
     test "data-only event" do
       assert encode_to_binary(%{data: "hello"}) == "data: hello\n\n"

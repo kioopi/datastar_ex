@@ -2,10 +2,31 @@ defmodule Datastar.SSE do
   @moduledoc """
   Canonical Server-Sent Events (`text/event-stream`) encoder.
 
-  Accepts a semantic SSE event map and serializes it into one canonical
-  UTF-8 wire representation: LF line endings, lowercase field names, one
-  space after each colon, fields ordered `event`, `id`, `retry`, `data`,
-  and exactly one terminating blank line.
+  Accepts a semantic SSE event map (see `t:event/0`) and serializes it
+  into one canonical UTF-8 wire representation. The WHATWG HTML Standard
+  defines how `text/event-stream` data is *interpreted*, not a canonical
+  server-side serialization; this module fixes one:
+
+    * LF (`\\n`) physical line endings only, never CR or CRLF
+    * lowercase field names, exactly one space after each colon
+    * fields ordered `event`, `id`, `retry`, then `data`
+    * one `data` field per logical data line; CRLF and CR in `:data` are
+      normalized to LF before splitting (they are indistinguishable to a
+      conforming parser)
+    * exactly one blank line terminates every event
+    * no byte-order mark
+
+  ## Error contract
+
+  Invalid input is a programming error: `encode/1` and `encode_comment/1`
+  raise `ArgumentError` with a field-specific message and produce no
+  partial output. Rejected outright are missing `:data`, unknown or
+  string keys, non-UTF-8 binaries, CR or LF in `:event`, and NULL, CR or
+  LF in `:id` — the last because a conforming parser silently ignores an
+  `id` containing NULL, and line breaks would inject fields.
+
+  This module encodes generic SSE only. Datastar event construction,
+  HTTP, connections and heartbeat scheduling live elsewhere.
 
   ## Examples
 
