@@ -65,6 +65,13 @@ defmodule Datastar.SSEWhatwgTest do
       assert %{events: [], last_event_id: "", reconnection_time: nil} = Model.interpret(binary)
     end
 
+    test "frame-injection-shaped data dispatches exactly one event with identical data" do
+      data = "data: x\n\nevent: y"
+
+      assert %{events: [%{type: "message", data: ^data}]} =
+               Model.interpret(encode_binary(%{data: data}))
+    end
+
     test "leading value spaces survive: parser removes only the delimiter space" do
       assert %{events: [%{data: " padded"}]} = Model.interpret(encode_binary(%{data: " padded"}))
     end

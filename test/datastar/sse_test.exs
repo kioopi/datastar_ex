@@ -35,6 +35,10 @@ defmodule Datastar.SSETest do
       assert encode_to_binary(event) == "event:  custom:type\ndata:  value: 1\n\n"
     end
 
+    test "leading space in id is preserved after the delimiter space" do
+      assert encode_to_binary(%{id: " 7", data: "x"}) == "id:  7\ndata: x\n\n"
+    end
+
     test "NULL is allowed in data and event" do
       assert encode_to_binary(%{event: "a\0b", data: "c\0d"}) ==
                "event: a\0b\ndata: c\0d\n\n"

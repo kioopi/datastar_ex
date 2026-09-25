@@ -96,6 +96,9 @@ defmodule Datastar.SSEPropertyTest do
       assert String.valid?(comment_binary)
       refute String.contains?(comment_binary, "\r")
       assert String.ends_with?(comment_binary, "\n")
+      # No blank line is ever appended: every line carries the ": " prefix,
+      # so a comment can never terminate a pending event (spec §6.2).
+      refute String.contains?(comment_binary, "\n\n")
 
       for line <- String.split(comment_binary, "\n", trim: true) do
         assert String.starts_with?(line, ": ")
@@ -105,6 +108,11 @@ defmodule Datastar.SSEPropertyTest do
 
       interleaved = [encode_binary(event), comment_binary, encode_binary(event)]
       assert decode(interleaved) == [normalize(event), normalize(event)]
+
+      expected_data = normalize(event).data
+
+      assert %{events: [%{data: ^expected_data}, %{data: ^expected_data}]} =
+               Model.interpret(IO.iodata_to_binary(interleaved))
     end
   end
 

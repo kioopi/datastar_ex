@@ -18,6 +18,12 @@ defmodule Datastar.SSEInteropTest do
     test "empty id and retry 0 survive decoding" do
       assert decode(["id: \nretry: 0\ndata: x\n\n"]) == [%{id: "", retry: 0, data: "x"}]
     end
+
+    test "a chunk split between CR and LF is one line break, not two" do
+      # Encoder output never contains CR (spec §7.1); this characterizes
+      # the oracle on decoder-side input per spec §10.4.
+      assert decode(["data: x\r", "\ndata: y\r\n\r\n"]) == [%{data: "x\ny"}]
+    end
   end
 
   describe "encode/1 round-trips through ServerSentEvents" do
@@ -42,6 +48,7 @@ defmodule Datastar.SSEInteropTest do
     test "comments decode to no events" do
       assert decode([comment_binary("heartbeat")]) == []
       assert decode([comment_binary("one\ntwo\n")]) == []
+      assert decode([comment_binary("")]) == []
     end
 
     test "a comment between events changes nothing" do
