@@ -3,6 +3,8 @@ defmodule Datastar.SSETest do
 
   doctest Datastar.SSE
 
+  @bom <<0xEF, 0xBB, 0xBF>>
+
   describe "encode/1 canonical bytes" do
     test "data-only event" do
       assert encode_to_binary(%{data: "hello"}) == "data: hello\n\n"
@@ -50,7 +52,7 @@ defmodule Datastar.SSETest do
     end
 
     test "output never starts with a BOM" do
-      refute String.starts_with?(encode_to_binary(%{data: "x"}), "﻿")
+      refute String.starts_with?(encode_to_binary(%{data: "x"}), @bom)
     end
 
     test "every encoded event ends with exactly one blank line" do
@@ -101,7 +103,7 @@ defmodule Datastar.SSETest do
     end
 
     test "U+FEFF inside a value is ordinary data, not a BOM" do
-      assert encode_to_binary(%{data: "a﻿b"}) == "data: a﻿b\n\n"
+      assert encode_to_binary(%{data: "a" <> @bom <> "b"}) == "data: a" <> @bom <> "b\n\n"
     end
   end
 

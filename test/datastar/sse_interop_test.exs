@@ -1,6 +1,8 @@
 defmodule Datastar.SSEInteropTest do
   use ExUnit.Case, async: true
 
+  @bom <<0xEF, 0xBB, 0xBF>>
+
   # ServerSentEvents is an interoperability oracle, not the specification
   # (spec §2, §9). The characterization tests pin the oracle behaviors the
   # round-trip assertions depend on; if one fails after a dep upgrade, the
@@ -76,7 +78,7 @@ defmodule Datastar.SSEInteropTest do
     end
 
     test "every single split point of a short unicode fixture" do
-      binary = encode_binary(%{data: "héllo\n﻿"})
+      binary = encode_binary(%{data: "héllo\n" <> @bom})
 
       for split <- 1..(byte_size(binary) - 1) do
         <<a::binary-size(^split), b::binary>> = binary

@@ -9,6 +9,10 @@ defmodule Datastar.SSE.WhatwgEventStreamModel do
   persistence and reset, and reconnection time.
   """
 
+  # U+FEFF as explicit bytes: a literal would be invisible in the source,
+  # and the formatter rewrites the backslash-uFEFF escape into one.
+  @bom <<0xEF, 0xBB, 0xBF>>
+
   defstruct data_buffer: [],
             saw_data_field: false,
             event_type_buffer: "",
@@ -38,7 +42,7 @@ defmodule Datastar.SSE.WhatwgEventStreamModel do
   # never processed.
   defp complete_lines(binary) do
     binary
-    |> String.replace_prefix("﻿", "")
+    |> String.replace_prefix(@bom, "")
     |> String.split(["\r\n", "\r", "\n"])
     |> Enum.drop(-1)
   end

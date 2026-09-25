@@ -3,6 +3,8 @@ defmodule Datastar.SSEWhatwgTest do
 
   alias Datastar.SSE.WhatwgEventStreamModel, as: Model
 
+  @bom <<0xEF, 0xBB, 0xBF>>
+
   describe "encoded events under WHATWG interpretation" do
     test "a data-only event dispatches once as type message" do
       binary = encode_binary(%{data: "hello"})
@@ -68,7 +70,7 @@ defmodule Datastar.SSEWhatwgTest do
     end
 
     test "one leading BOM is stripped from the stream" do
-      assert %{events: [%{data: "x"}]} = Model.interpret("﻿data: x\n\n")
+      assert %{events: [%{data: "x"}]} = Model.interpret(@bom <> "data: x\n\n")
     end
 
     test "comments dispatch nothing and change no state" do

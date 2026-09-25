@@ -5,6 +5,8 @@ defmodule Datastar.SSEPropertyTest do
   alias Datastar.SSE.Generators
   alias Datastar.SSE.WhatwgEventStreamModel, as: Model
 
+  @bom <<0xEF, 0xBB, 0xBF>>
+
   test "generators cover injection-prone and boundary shapes" do
     events = Enum.take(Generators.event(), 1_000)
     names = Enum.flat_map(events, &(Map.take(&1, [:event, :id]) |> Map.values()))
@@ -33,7 +35,7 @@ defmodule Datastar.SSEPropertyTest do
 
       assert String.valid?(binary)
       refute String.contains?(binary, "\r")
-      refute String.starts_with?(binary, "﻿")
+      refute String.starts_with?(binary, @bom)
       assert String.ends_with?(binary, "\n\n")
 
       assert [decoded] = decode([binary])
