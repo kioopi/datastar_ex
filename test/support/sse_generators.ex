@@ -82,17 +82,21 @@ defmodule Datastar.SSE.Generators do
     one_of([
       map(event(), &Map.delete(&1, :data)),
       map(event(), &Map.put(&1, :bogus, 1)),
-      map(event(), &Map.put(&1, :data, <<0xFF, 0xFE>>)),
-      map(tuple({event(), member_of(["\n", "\r"])}), fn {e, sep} ->
+      put_key(:data, member_of([<<0xFF, 0xFE>>, 1, 1.5, :atom, nil, true, [~c"x"]])),
+      put_key(:event, member_of([<<0xFF>>, <<0xC3, 0x28>>, :update, 42])),
+      put_key(:id, member_of([<<0xFF>>, <<0xE2, 0x28, 0xA1>>, :id, 7])),
+      map(tuple({event(), member_of(["\n", "\r", "\r\n"])}), fn {e, sep} ->
         Map.put(e, :event, "a#{sep}b")
       end),
-      map(tuple({event(), member_of(["\0", "\n", "\r"])}), fn {e, sep} ->
+      map(tuple({event(), member_of(["\0", "\n", "\r", "\r\n"])}), fn {e, sep} ->
         Map.put(e, :id, "a#{sep}b")
       end),
-      map(tuple({event(), one_of([negative_integer(), float(), constant("100")])}), fn {e, retry} ->
-        Map.put(e, :retry, retry)
-      end)
+      put_key(:retry, one_of([negative_integer(), float(), member_of(["100", :fast, nil, true])]))
     ])
+  end
+
+  defp put_key(key, value_gen) do
+    map(tuple({event(), value_gen}), fn {e, value} -> Map.put(e, key, value) end)
   end
 
   defp negative_integer, do: map(positive_integer(), &(-&1))
