@@ -7,6 +7,8 @@ defmodule Datastar.SSE.Generators do
 
   import StreamData
 
+  @doc "Event data: broad UTF-8 weighted with newline-heavy and empty edges."
+  @spec data() :: StreamData.t(String.t())
   def data do
     multiline =
       bind(list_of(string(:utf8), max_length: 5), fn lines ->
@@ -37,6 +39,8 @@ defmodule Datastar.SSE.Generators do
   # rather than filtering broad strings (spec §12.1). ASCII and targeted
   # injection-prone constants are weighted in because uniform Unicode
   # almost never produces colons, spaces, or NULL.
+  @doc "Event names: Unicode without CR/LF, ASCII, and injection-prone constants."
+  @spec event_name() :: StreamData.t(String.t())
   def event_name do
     frequency([
       {3, string(safe_codepoint_ranges(), max_length: 30)},
@@ -45,6 +49,8 @@ defmodule Datastar.SSE.Generators do
     ])
   end
 
+  @doc "Event IDs: like `event_name/0` but never containing NULL."
+  @spec id() :: StreamData.t(String.t())
   def id do
     frequency([
       {3, string(safe_codepoint_ranges(), max_length: 30)},
@@ -59,10 +65,14 @@ defmodule Datastar.SSE.Generators do
     [0x01..0x09, 0x0B..0x0C, 0x0E..0xD7FF, 0xE000..0x10FFFF]
   end
 
+  @doc "Retry values: small and very large non-negative integers."
+  @spec retry() :: StreamData.t(non_neg_integer())
   def retry do
     one_of([non_negative_integer(), integer(0..9_999_999_999_999)])
   end
 
+  @doc "Valid events: required `:data` plus any subset of the optional keys."
+  @spec event() :: StreamData.t(Datastar.SSE.event())
   def event do
     bind(data(), fn data ->
       %{event: event_name(), id: id(), retry: retry()}
@@ -71,6 +81,8 @@ defmodule Datastar.SSE.Generators do
     end)
   end
 
+  @doc "Comment text: broad UTF-8 plus newline-edge constants."
+  @spec comment() :: StreamData.t(String.t())
   def comment do
     frequency([
       {5, string(:utf8, max_length: 60)},
@@ -78,6 +90,8 @@ defmodule Datastar.SSE.Generators do
     ])
   end
 
+  @doc "Invalid events: each generated value violates exactly one known rule."
+  @spec invalid_event() :: StreamData.t(term())
   def invalid_event do
     one_of([
       map(event(), &Map.delete(&1, :data)),

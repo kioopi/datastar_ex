@@ -52,7 +52,7 @@ defmodule DatastarEx.MixProject do
       ci: [
         "compile --warnings-as-errors",
         "format --check-formatted",
-        "test",
+        "test --warnings-as-errors",
         "credo --strict",
         "dialyzer",
         "ex_dna --max-clones 0",

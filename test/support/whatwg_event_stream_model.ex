@@ -26,6 +26,11 @@ defmodule Datastar.SSE.WhatwgEventStreamModel do
   final stream state. Incomplete trailing data (no final newline) is
   discarded, as at EOF in the standard.
   """
+  @spec interpret(binary()) :: %{
+          events: [%{type: String.t(), data: String.t(), last_event_id: String.t()}],
+          last_event_id: String.t(),
+          reconnection_time: non_neg_integer() | nil
+        }
   def interpret(binary) when is_binary(binary) do
     lines = complete_lines(binary)
     state = Enum.reduce(lines, %__MODULE__{}, &process_line/2)

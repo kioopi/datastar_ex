@@ -110,40 +110,40 @@ defmodule Datastar.SSETest do
   describe "encode/1 validation" do
     test "rejects a map without :data" do
       assert_raise ArgumentError, ~r/missing required :data/, fn ->
-        Datastar.SSE.encode(%{event: "update"})
+        Datastar.SSE.encode(invalid(%{event: "update"}))
       end
     end
 
     test "rejects non-map input including keyword lists" do
       assert_raise ArgumentError, ~r/expected a map/, fn ->
-        Datastar.SSE.encode(data: "x")
+        Datastar.SSE.encode(invalid(data: "x"))
       end
 
       assert_raise ArgumentError, ~r/expected a map/, fn ->
-        Datastar.SSE.encode("data: x")
+        Datastar.SSE.encode(invalid("data: x"))
       end
 
       assert_raise ArgumentError, ~r/expected a map/, fn ->
-        Datastar.SSE.encode(nil)
+        Datastar.SSE.encode(invalid(nil))
       end
     end
 
     test "rejects string keys with a message naming the actual mistake" do
       assert_raise ArgumentError, ~r/keys must be atoms/, fn ->
-        Datastar.SSE.encode(%{"data" => "x"})
+        Datastar.SSE.encode(invalid(%{"data" => "x"}))
       end
     end
 
     test "rejects structs with a message naming the struct" do
       assert_raise ArgumentError, ~r/structs are not supported, got: URI/, fn ->
-        Datastar.SSE.encode(%URI{})
+        Datastar.SSE.encode(invalid(%URI{}))
       end
     end
 
     test "the non-map error message is bounded for huge input" do
       error =
         assert_raise ArgumentError, ~r/expected a map/, fn ->
-          Datastar.SSE.encode(String.duplicate("x", 100_000))
+          Datastar.SSE.encode(invalid(String.duplicate("x", 100_000)))
         end
 
       assert String.length(error.message) < 200
@@ -151,12 +151,12 @@ defmodule Datastar.SSETest do
 
     test "rejects unknown keys, catching misspellings" do
       assert_raise ArgumentError, ~r/unknown key :rety/, fn ->
-        Datastar.SSE.encode(%{data: "x", rety: 1})
+        Datastar.SSE.encode(invalid(%{data: "x", rety: 1}))
       end
     end
 
     test "rejects non-binary data, event, and id" do
-      for bad <- [%{data: 1}, %{data: "x", event: :update}, %{data: "x", id: 42}] do
+      for bad <- invalid([%{data: 1}, %{data: "x", event: :update}, %{data: "x", id: 42}]) do
         assert_raise ArgumentError, ~r/valid UTF-8 binary/, fn ->
           Datastar.SSE.encode(bad)
         end
@@ -239,10 +239,14 @@ defmodule Datastar.SSETest do
       end
 
       assert_raise ArgumentError, ~r/invalid SSE comment/, fn ->
-        Datastar.SSE.encode_comment(:heartbeat)
+        Datastar.SSE.encode_comment(invalid(:heartbeat))
       end
     end
   end
+
+  # Defeats compile-time type inference so tests can pass inputs the
+  # compiler knows are invalid without emitting warnings.
+  defp invalid(term), do: Enum.random([term])
 
   defp encode_to_binary(event) do
     event |> Datastar.SSE.encode() |> IO.iodata_to_binary()
