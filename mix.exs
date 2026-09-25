@@ -33,6 +33,7 @@ defmodule DatastarEx.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:benchee, "~> 1.3", only: :dev, runtime: false},
       {:server_sent_events, "~> 1.1", only: :test, runtime: false},
       {:stream_data, "~> 1.4", only: :test, runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
