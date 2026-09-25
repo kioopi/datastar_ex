@@ -64,6 +64,41 @@ defmodule Datastar.SSETest do
     end
   end
 
+  describe "encode/1 data newline normalization" do
+    test "CRLF in data normalizes to LF" do
+      assert encode_to_binary(%{data: "one\r\ntwo"}) == "data: one\ndata: two\n\n"
+    end
+
+    test "lone CR normalizes to LF" do
+      assert encode_to_binary(%{data: "one\rtwo"}) == "data: one\ndata: two\n\n"
+    end
+
+    test "mixed newline styles all normalize to LF" do
+      assert encode_to_binary(%{data: "a\r\nb\rc\nd"}) ==
+               "data: a\ndata: b\ndata: c\ndata: d\n\n"
+    end
+
+    test "one trailing newline yields a trailing empty data field" do
+      assert encode_to_binary(%{data: "one\n"}) == "data: one\ndata: \n\n"
+    end
+
+    test "data of a single newline yields two empty data fields" do
+      assert encode_to_binary(%{data: "\n"}) == "data: \ndata: \n\n"
+    end
+
+    test "data of two newlines yields three empty data fields" do
+      assert encode_to_binary(%{data: "\n\n"}) == "data: \ndata: \ndata: \n\n"
+    end
+
+    test "trailing CRLF yields a trailing empty data field" do
+      assert encode_to_binary(%{data: "one\r\n"}) == "data: one\ndata: \n\n"
+    end
+
+    test "U+FEFF inside a value is ordinary data, not a BOM" do
+      assert encode_to_binary(%{data: "a﻿b"}) == "data: a﻿b\n\n"
+    end
+  end
+
   defp encode_to_binary(event) do
     event |> Datastar.SSE.encode() |> IO.iodata_to_binary()
   end

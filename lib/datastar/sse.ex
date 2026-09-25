@@ -57,7 +57,12 @@ defmodule Datastar.SSE do
 
   defp data_lines(data) do
     data
+    |> normalize_newlines()
     |> String.split("\n", trim: false)
     |> Enum.map(&["data: ", &1, "\n"])
   end
+
+  # CRLF first, then lone CR; :binary matching is leftmost-longest, so a
+  # single pass with both patterns is order-correct.
+  defp normalize_newlines(binary), do: String.replace(binary, ["\r\n", "\r"], "\n")
 end
