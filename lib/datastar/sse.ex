@@ -169,8 +169,7 @@ defmodule Datastar.SSE do
     end
 
     comment
-    |> normalize_newlines()
-    |> String.split("\n", trim: false)
+    |> logical_lines()
     |> Enum.map(&[": ", &1, "\n"])
   end
 
@@ -186,12 +185,12 @@ defmodule Datastar.SSE do
 
   defp data_lines(data) do
     data
-    |> normalize_newlines()
-    |> String.split("\n", trim: false)
+    |> logical_lines()
     |> Enum.map(&["data: ", &1, "\n"])
   end
 
-  # CRLF first, then lone CR; :binary matching is leftmost-longest, so a
-  # single pass with both patterns is order-correct.
-  defp normalize_newlines(binary), do: String.replace(binary, ["\r\n", "\r"], "\n")
+  # Splitting on all three newline styles at once normalizes and splits in
+  # a single pass over sub-binaries, with no intermediate copy. :binary
+  # matching is leftmost-longest, so CRLF wins over a lone CR.
+  defp logical_lines(binary), do: :binary.split(binary, ["\r\n", "\r", "\n"], [:global])
 end
