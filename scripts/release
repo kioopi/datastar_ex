@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+#MISE description="Cut a release: bump the version, regenerate CHANGELOG.md, run mix ci, tag and push"
+#USAGE arg "<version>" help="The new version without the leading v, e.g. 0.2.0"
+#USAGE flag "--dry-run" help="Check the history and print the new changelog section; change nothing"
+#
+# Releases whatever `main` points at. See "Releasing" in README.md for the
+# manual procedure this automates and for why each check exists.
+set -Eeuo pipefail
+
+# Set once the release starts changing things, so failures can say how to undo.
+restore_op=""
+
+usage() {
+  cat <<'EOF'
+Usage: mise run release <version> [--dry-run]
+
+  <version>   the new version without the leading v, e.g. 0.2.0
+  --dry-run   check the history and print the new changelog section; change nothing
+EOF
+}
+
+undo_hint() {
+  [[ -z $restore_op ]] && return
+  printf '\n\033[31mRelease failed.\033[0m Nothing was pushed. Undo every local change with:\n  jj op restore %s\n' "$restore_op" >&2
+}
+
+die() {
+  printf '\033[31merror:\033[0m %s\n' "$*" >&2
+  undo_hint
+  exit 1
+}
+
+step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+
+mix_version() { sed -n 's/^  @version "\(.*\)"$/\1/p' mix.exs; }
+
+commit_of() { jj log -r "$1" --no-graph -T 'commit_id' 2>/dev/null; }
+
+# The whole script lives in a function: `jj new main` rewrites the files on
+# disk, possibly including this one, and bash reads scripts lazily.
+main() {
+  local version="" dry_run=false arg
+  for arg in "$@"; do
+    case "$arg" in
+    --dry-run) dry_run=true ;;
+    -h | --help) usage && exit 0 ;;
+    -*) die "unknown option: $arg" ;;
+    *)
+      [[ -z $version ]] || die "unexpected argument: $arg"
+      version=${arg#v}
+      ;;
+    esac
+  done
+  [[ -n $version ]] || {
+    usage >&2
+    exit 1
+  }
+
+  local tag="v$version"
+  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] ||
+    die "$version is not a SemVer version such as 0.2.0"
+
+  cd "$(jj root)"
+  # A secondary jj workspace has no .git, and git-cliff there "succeeds" with
+  # an empty changelog.
+  [[ -d .git ]] || die "run this from the main checkout, not from a jj workspace: $(pwd) has no .git"
+
+  local current
+  current=$(mix_version)
+  [[ -n $current ]] || die "could not read @version from mix.exs"
+  [[ $version != "$current" && $(printf '%s\n' "$current" "$version" | sort -V | tail -1) == "$version" ]] ||
+    die "$version is not newer than the current version $current"
+
+  step "Checking the history"
+  local main_commit
+  main_commit=$(commit_of main) || die "there is no single 'main' bookmark"
+  [[ -z $(jj tag list "exact:$tag" 2>/dev/null) ]] || die "tag $tag already exists"
+  if [[ -n $(commit_of main@origin) && -n $(jj log -r 'main@origin ~ ::main' --no-graph -T 'change_id') ]]; then
+    die "main is behind main@origin; run 'jj git fetch' and rebase first"
+  fi
+
+  local last_tag
+  last_tag=$(git describe --tags --abbrev=0 --match 'v*' "$main_commit" 2>/dev/null) ||
+    die "no earlier release tag (v*) below main; tag the last release first"
+
+  local undescribed
+  undescribed=$(jj log -r "(::main ~ ::\"$last_tag\") & description(exact:\"\")" --no-graph \
+    -T 'change_id.short() ++ "\n"')
+  [[ -z $undescribed ]] || die "these changes have no description and would be left out of the changelog:
+$undescribed
+Describe them with 'jj describe -r <change>'."
+
+  # git-cliff reads git refs; make sure they match what jj sees.
+  jj git export >/dev/null
+  [[ $(git rev-parse main) == "$main_commit" ]] || die "git's main ref does not match jj's main bookmark"
+
+  echo "Releasing $current -> $version. Changes since $last_tag:"
+  git --no-pager log --oneline "$last_tag..main"
+
+  if $dry_run; then
+    step "Changelog section for $tag"
+    RUST_LOG=warn git cliff --unreleased --tag "$tag" -- "$last_tag..main"
+    printf '\nDry run: nothing was changed. Release with: mise run release %s\n' "$version"
+    return
+  fi
+
+  restore_op=$(jj op log -n1 --no-graph -T 'id.short()')
+  trap undo_hint ERR
+
+  step "Creating the release change"
+  jj new main -m "chore(release): $tag"
+  sed -E "s/^(  @version )\"$current\"/\1\"$version\"/" mix.exs >mix.exs.tmp && mv mix.exs.tmp mix.exs
+  [[ $(mix_version) == "$version" ]] || die "failed to bump @version in mix.exs"
+
+  step "Generating CHANGELOG.md"
+  jj git export >/dev/null
+  [[ $(git rev-parse HEAD) == "$main_commit" ]] || die "git's HEAD is not main; git-cliff would read the wrong history"
+  RUST_LOG=warn git cliff --tag "$tag" -o CHANGELOG.md
+  sed -n '/^## /,$p' CHANGELOG.md | awk '/^## / && n++ { exit } { print }'
+
+  step "Running mix ci"
+  mix ci
+
+  step "Tagging $tag"
+  jj new
+  jj bookmark move main --to @-
+  jj tag set "$tag" -r main
+
+  step "Pushing main and $tag"
+  trap - ERR
+  restore_op=""
+  jj git push --bookmark main --tag "$tag"
+
+  cat <<EOF
+
+$(printf '\033[32mReleased %s.\033[0m' "$tag")
+  version     $current -> $version
+  commit      $(jj log -r main --no-graph -T 'change_id.short() ++ " " ++ description.first_line()')
+  pushed      main and $tag to origin
+
+Publish to Hex:
+  mix hex.user whoami     # check you are logged in, otherwise: mix hex.user auth
+  mix hex.build           # inspect the files that go into the package
+  mix hex.publish         # publish the package and its docs
+
+Hex lets you revert a freshly published version for a short while:
+  mix hex.publish --revert $version
+EOF
+}
+
+main "$@"

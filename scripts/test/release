@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+#MISE description="Test scripts/release against a throwaway copy of the repository"
+#
+# Copies the repository (including deps/, _build/ and priv/plts/ so that
+# `mix ci` is fast), points `origin` at a local bare repository, and runs the
+# release script against it. Nothing touches the real repository or GitHub.
+set -euo pipefail
+
+root=$(jj root)
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+sandbox="$tmp/repo"
+remote="$tmp/remote.git"
+failures=0
+
+pass() { printf '  \033[32mok\033[0m    %s\n' "$1"; }
+fail() {
+  printf '  \033[31mFAIL\033[0m  %s\n' "$1"
+  failures=$((failures + 1))
+}
+check() { # check <description> <command...>
+  local description=$1
+  shift
+  if "$@" >/dev/null 2>&1; then pass "$description"; else fail "$description"; fi
+}
+release() { # release <args...>; output in $out, exit status in $status
+  set +e
+  out=$("$sandbox/scripts/release" "$@" 2>&1)
+  status=$?
+  set -e
+  printf '%s\n' "$out" >>"$tmp/release.log"
+}
+mix_version() { sed -n 's/^  @version "\(.*\)"$/\1/p' mix.exs; }
+remote_has() { git --git-dir="$remote" rev-parse -q --verify "$1"; }
+
+echo "Setting up sandbox in $tmp"
+mkdir "$sandbox"
+tar -C "$root" --exclude=./.workspaces -cf - . | tar -C "$sandbox" -xf -
+git init -q --bare "$remote"
+cd "$sandbox"
+jj workspace update-stale >/dev/null 2>&1 || true
+jj git remote remove origin >/dev/null 2>&1 || true
+jj git remote add origin "$remote"
+# Release everything in the copy, including uncommitted work in `@`.
+jj bookmark set main -r @ --allow-backwards >/dev/null 2>&1
+if [[ -z $(jj tag list 'v*' 2>/dev/null) ]]; then
+  # The script needs a previous release tag to diff against.
+  jj tag set v0.0.0 -r 'root()+' >/dev/null 2>&1
+fi
+jj new >/dev/null 2>&1
+current=$(mix_version)
+next=$(echo "$current" | awk -F. '{ printf "%d.%d.0", $1, $2 + 1 }')
+tag="v$next"
+
+echo "Argument validation"
+release
+check "fails without a version" test "$status" -ne 0
+check "prints usage without a version" grep -q "Usage" <<<"$out"
+release banana
+check "rejects a version that is not SemVer" test "$status" -ne 0
+release "$current" --dry-run
+check "rejects a version that is not newer than mix.exs" test "$status" -ne 0
+release "$next" --bogus
+check "rejects an unknown flag" test "$status" -ne 0
+
+echo "Existing tag"
+jj tag set "$tag" -r main >/dev/null 2>&1
+release "$next" --dry-run
+check "refuses a version whose tag already exists" test "$status" -ne 0
+jj tag delete "$tag" >/dev/null 2>&1
+
+echo "Undescribed change"
+jj new main >/dev/null 2>&1
+echo change >undescribed.txt
+jj new >/dev/null 2>&1
+jj bookmark move main --to @- >/dev/null 2>&1
+release "$next" --dry-run
+check "refuses to release a change without a description" test "$status" -ne 0
+jj describe -r main -m "test: add a described change" >/dev/null 2>&1
+
+echo "Dry run"
+op_before=$(jj op log -n1 --no-graph -T 'id')
+changelog_before=$(sha256sum <CHANGELOG.md)
+release "$next" --dry-run
+check "succeeds" test "$status" -eq 0
+check "prints the new changelog section" grep -qF "## [$next]" <<<"$out"
+check "prints the commits being released" grep -q "test: add a described change" <<<"$out"
+check "leaves mix.exs alone" test "$(mix_version)" = "$current"
+check "creates no tag" test -z "$(jj tag list "$tag" 2>/dev/null)"
+check "leaves CHANGELOG.md alone" test "$(sha256sum <CHANGELOG.md)" = "$changelog_before"
+check "records no jj operation" test "$(jj op log -n1 --no-graph -T 'id')" = "$op_before"
+check "pushes nothing" test -z "$(git --git-dir="$remote" show-ref)"
+
+echo "Failing mix ci"
+jj new main >/dev/null 2>&1
+printf 'defmodule   Badly.Formatted do\nend\n' >lib/badly_formatted.ex
+jj describe -m "style: add a badly formatted module" >/dev/null 2>&1
+jj new >/dev/null 2>&1
+jj bookmark move main --to @- >/dev/null 2>&1
+op_before=$(jj op log -n1 --no-graph -T 'id.short()')
+release "$next"
+check "fails" test "$status" -ne 0
+check "fails in mix ci" grep -q "not formatted" <<<"$out"
+check "explains how to undo" grep -qF "jj op restore $op_before" <<<"$out"
+check "pushes nothing" test -z "$(git --git-dir="$remote" show-ref)"
+jj op restore "$op_before" >/dev/null 2>&1
+jj abandon --retain-bookmarks main >/dev/null 2>&1
+jj new main >/dev/null 2>&1
+
+echo "Release"
+release "$next"
+check "succeeds" test "$status" -eq 0
+check "bumps @version in mix.exs" test "$(jj file show -r main mix.exs | grep -c "@version \"$next\"")" -eq 1
+check "puts the new release at the top of CHANGELOG.md" \
+  test "$(jj file show -r main CHANGELOG.md | head -1 | cut -d' ' -f2)" = "[$next]"
+check "describes the release change" \
+  test "$(jj log -r main --no-graph -T 'description.first_line()')" = "chore(release): $tag"
+check "tags main" test "$(jj log -r "tags(exact:\"$tag\")" --no-graph -T 'change_id')" = \
+  "$(jj log -r main --no-graph -T 'change_id')"
+check "pushes main" test "$(remote_has refs/heads/main)" = "$(jj log -r main --no-graph -T commit_id)"
+check "pushes the tag" remote_has "refs/tags/$tag"
+check "leaves an empty working copy on top of main" \
+  test "$(jj log -r '@ & empty()' --no-graph -T 'change_id')" = "$(jj log -r 'main+' --no-graph -T 'change_id')"
+check "explains how to publish to Hex" grep -q "mix hex.publish" <<<"$out"
+
+echo
+if ((failures > 0)); then
+  echo "$failures check(s) failed. Release script output: $tmp/release.log"
+  trap - EXIT
+  exit 1
+fi
+echo "All checks passed."
