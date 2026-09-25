@@ -48,6 +48,7 @@ defmodule Datastar.SSE.WhatwgEventStreamModel do
     |> Map.put(:last_event_id, state.last_event_id_buffer)
     |> dispatch()
   end
+
   defp process_line(":" <> _comment, state), do: state
 
   defp process_line(line, state) do

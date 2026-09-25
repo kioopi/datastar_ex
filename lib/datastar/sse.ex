@@ -20,10 +20,12 @@ defmodule Datastar.SSE do
 
   Invalid input is a programming error: `encode/1` and `encode_comment/1`
   raise `ArgumentError` with a field-specific message and produce no
-  partial output. Rejected outright are missing `:data`, unknown or
-  string keys, non-UTF-8 binaries, CR or LF in `:event`, and NULL, CR or
-  LF in `:id` — the last because a conforming parser silently ignores an
-  `id` containing NULL, and line breaks would inject fields.
+  partial output. Rejected outright are non-map input (including keyword
+  lists and structs), missing `:data`, unknown or string keys, non-UTF-8
+  binaries, a `:retry` that is not a non-negative integer, CR or LF in
+  `:event`, and NULL, CR or LF in `:id` — the last because a conforming
+  parser silently ignores an `id` containing NULL, and line breaks would
+  inject fields.
 
   This module encodes generic SSE only. Datastar event construction,
   HTTP, connections and heartbeat scheduling live elsewhere.
@@ -70,6 +72,11 @@ defmodule Datastar.SSE do
 
   @known_keys [:data, :event, :id, :retry]
 
+  defp validate!(%module{}) do
+    raise ArgumentError,
+          "invalid SSE event: structs are not supported, got: #{inspect(module)}"
+  end
+
   defp validate!(event) when is_map(event) do
     validate_keys!(event)
     validate_data!(event)
@@ -80,10 +87,18 @@ defmodule Datastar.SSE do
 
   defp validate!(other) do
     raise ArgumentError,
-          "invalid SSE event: expected a map, got: #{inspect(other)}"
+          "invalid SSE event: expected a map, got: #{bounded_inspect(other)}"
   end
 
   defp validate_keys!(event) do
+    case Enum.find(Map.keys(event), &(not is_atom(&1))) do
+      nil ->
+        :ok
+
+      key ->
+        raise ArgumentError, "invalid SSE event: keys must be atoms, got: #{bounded_inspect(key)}"
+    end
+
     unless Map.has_key?(event, :data) do
       raise ArgumentError, "invalid SSE event: missing required :data"
     end
@@ -93,6 +108,8 @@ defmodule Datastar.SSE do
       unknown -> raise ArgumentError, "invalid SSE event: unknown key #{inspect(hd(unknown))}"
     end
   end
+
+  defp bounded_inspect(term), do: inspect(term, limit: 5, printable_limit: 50)
 
   defp validate_data!(%{data: data}) do
     validate_utf8!(data, ":data")

@@ -126,10 +126,25 @@ defmodule Datastar.SSETest do
       end
     end
 
-    test "rejects string keys" do
-      assert_raise ArgumentError, ~r/invalid SSE event/, fn ->
+    test "rejects string keys with a message naming the actual mistake" do
+      assert_raise ArgumentError, ~r/keys must be atoms/, fn ->
         Datastar.SSE.encode(%{"data" => "x"})
       end
+    end
+
+    test "rejects structs with a message naming the struct" do
+      assert_raise ArgumentError, ~r/structs are not supported, got: URI/, fn ->
+        Datastar.SSE.encode(%URI{})
+      end
+    end
+
+    test "the non-map error message is bounded for huge input" do
+      error =
+        assert_raise ArgumentError, ~r/expected a map/, fn ->
+          Datastar.SSE.encode(String.duplicate("x", 100_000))
+        end
+
+      assert String.length(error.message) < 200
     end
 
     test "rejects unknown keys, catching misspellings" do
