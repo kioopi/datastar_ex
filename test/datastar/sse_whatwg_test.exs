@@ -59,6 +59,18 @@ defmodule Datastar.SSEWhatwgTest do
       assert %{reconnection_time: 0} = Model.interpret(encode_binary(%{retry: 0, data: "x"}))
     end
 
+    test "an id in an unterminated block is never committed" do
+      assert %{last_event_id: ""} = Model.interpret("id: 9\ndata: x")
+    end
+
+    test "a blank line commits the id buffer even without a dispatch" do
+      assert %{events: [], last_event_id: "9"} = Model.interpret("id: 9\n\n")
+    end
+
+    test "one leading BOM is stripped from the stream" do
+      assert %{events: [%{data: "x"}]} = Model.interpret("﻿data: x\n\n")
+    end
+
     test "comments dispatch nothing and change no state" do
       binary = "hb" |> Datastar.SSE.encode_comment() |> IO.iodata_to_binary()
 

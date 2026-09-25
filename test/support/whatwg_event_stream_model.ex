@@ -12,6 +12,7 @@ defmodule Datastar.SSE.WhatwgEventStreamModel do
   defstruct data_buffer: [],
             saw_data_field: false,
             event_type_buffer: "",
+            last_event_id_buffer: "",
             last_event_id: "",
             reconnection_time: nil,
             events: []
@@ -32,15 +33,21 @@ defmodule Datastar.SSE.WhatwgEventStreamModel do
     }
   end
 
-  # Physical lines end in CRLF, CR, or LF; a trailing fragment without a
-  # terminator is never processed.
+  # One leading U+FEFF is stripped by the stream decoder. Physical lines
+  # end in CRLF, CR, or LF; a trailing fragment without a terminator is
+  # never processed.
   defp complete_lines(binary) do
     binary
+    |> String.replace_prefix("﻿", "")
     |> String.split(["\r\n", "\r", "\n"])
     |> Enum.drop(-1)
   end
 
-  defp process_line("", state), do: dispatch(state)
+  defp process_line("", state) do
+    state
+    |> Map.put(:last_event_id, state.last_event_id_buffer)
+    |> dispatch()
+  end
   defp process_line(":" <> _comment, state), do: state
 
   defp process_line(line, state) do
@@ -60,8 +67,10 @@ defmodule Datastar.SSE.WhatwgEventStreamModel do
     %{state | data_buffer: [state.data_buffer, value, "\n"], saw_data_field: true}
   end
 
+  # The id field sets only the buffer; the EventSource's committed last
+  # event ID changes at the next blank line (dispatchMessage step 1).
   defp process_field("id", value, state) do
-    if String.contains?(value, "\0"), do: state, else: %{state | last_event_id: value}
+    if String.contains?(value, "\0"), do: state, else: %{state | last_event_id_buffer: value}
   end
 
   defp process_field("retry", value, state) do
