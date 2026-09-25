@@ -99,6 +99,96 @@ defmodule Datastar.SSETest do
     end
   end
 
+  describe "encode/1 validation" do
+    test "rejects a map without :data" do
+      assert_raise ArgumentError, ~r/missing required :data/, fn ->
+        Datastar.SSE.encode(%{event: "update"})
+      end
+    end
+
+    test "rejects non-map input including keyword lists" do
+      assert_raise ArgumentError, ~r/expected a map/, fn ->
+        Datastar.SSE.encode(data: "x")
+      end
+
+      assert_raise ArgumentError, ~r/expected a map/, fn ->
+        Datastar.SSE.encode("data: x")
+      end
+
+      assert_raise ArgumentError, ~r/expected a map/, fn ->
+        Datastar.SSE.encode(nil)
+      end
+    end
+
+    test "rejects string keys" do
+      assert_raise ArgumentError, ~r/invalid SSE event/, fn ->
+        Datastar.SSE.encode(%{"data" => "x"})
+      end
+    end
+
+    test "rejects unknown keys, catching misspellings" do
+      assert_raise ArgumentError, ~r/unknown key :rety/, fn ->
+        Datastar.SSE.encode(%{data: "x", rety: 1})
+      end
+    end
+
+    test "rejects non-binary data, event, and id" do
+      for bad <- [%{data: 1}, %{data: "x", event: :update}, %{data: "x", id: 42}] do
+        assert_raise ArgumentError, ~r/valid UTF-8 binary/, fn ->
+          Datastar.SSE.encode(bad)
+        end
+      end
+    end
+
+    test "rejects malformed UTF-8 in every binary field" do
+      malformed = <<0xFF, 0xFE>>
+
+      for bad <- [
+            %{data: malformed},
+            %{data: "x", event: malformed},
+            %{data: "x", id: malformed}
+          ] do
+        assert_raise ArgumentError, ~r/valid UTF-8 binary/, fn ->
+          Datastar.SSE.encode(bad)
+        end
+      end
+    end
+
+    test "rejects CR, LF, and CRLF in :event" do
+      for name <- ["a\nb", "a\rb", "a\r\nb"] do
+        assert_raise ArgumentError, ~r/:event must not contain CR or LF/, fn ->
+          Datastar.SSE.encode(%{data: "x", event: name})
+        end
+      end
+    end
+
+    test "rejects NULL, CR, LF, and CRLF in :id" do
+      for id <- ["a\0b", "a\nb", "a\rb", "a\r\nb"] do
+        assert_raise ArgumentError, ~r/:id must not contain NULL, CR, or LF/, fn ->
+          Datastar.SSE.encode(%{data: "x", id: id})
+        end
+      end
+    end
+
+    test "rejects invalid retry values" do
+      for retry <- [-1, 1.5, "2000", :fast, nil, true] do
+        assert_raise ArgumentError, ~r/:retry must be a non-negative integer/, fn ->
+          Datastar.SSE.encode(%{data: "x", retry: retry})
+        end
+      end
+    end
+
+    test "injection-shaped event and id values are rejected, not stripped" do
+      assert_raise ArgumentError, fn ->
+        Datastar.SSE.encode(%{data: "ok", event: "safe\ndata: injected"})
+      end
+
+      assert_raise ArgumentError, fn ->
+        Datastar.SSE.encode(%{data: "ok", id: "42\n\nretry: 0"})
+      end
+    end
+  end
+
   defp encode_to_binary(event) do
     event |> Datastar.SSE.encode() |> IO.iodata_to_binary()
   end
