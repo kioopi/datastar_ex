@@ -21,7 +21,7 @@ defmodule Datastar.Signals.Reader do
   @typedoc "Stable categories for malformed incoming signal data."
   @type decode_error :: :invalid_json | :not_an_object
 
-  @typedoc "A JSON decoder: Jason.decode/1-shaped."
+  @typedoc "A JSON decoder function returning {:ok, term} | {:error, term}."
   @type decoder :: (binary() -> {:ok, term()} | {:error, term()})
 
   @query_methods ["get", "delete"]

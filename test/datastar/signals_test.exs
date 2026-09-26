@@ -106,6 +106,13 @@ defmodule Datastar.SignalsTest do
       assert event == Signals.patch_raw(JSON.encode!(%{count: 2}), only_if_missing: true)
     end
 
+    test "a single-key map's exact encoded wire form (§12.1)" do
+      event = Signals.patch(%{count: 2})
+
+      assert encoded(event) ==
+               "event: datastar-patch-signals\ndata: signals {\"count\":2}\n\n"
+    end
+
     test "string, atom, and integer keys normalize to JSON member names" do
       assert Signals.patch(%{"a" => 1}).data == ~s(signals {"a":1})
       assert Signals.patch(%{a: 1}).data == ~s(signals {"a":1})

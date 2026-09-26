@@ -37,6 +37,12 @@ defmodule Datastar do
     * `Datastar.Script` — constructs script-executing element patches
 
   HTTP integration and signal store subscriptions are not implemented yet.
+
+  ## Compatibility
+
+  This SDK targets Datastar v1.0.4 and requires Elixir >= 1.18, since the
+  core encodes and decodes JSON with the standard-library `JSON` module
+  rather than a third-party dependency.
   """
 
   @doc "Constructs a `datastar-patch-elements` event. See `Datastar.Elements.patch/2`."

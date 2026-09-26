@@ -1,6 +1,10 @@
 # DatastarEx
 
-**TODO: Add description**
+A low-level, zero-runtime-dependency [Datastar](https://data-star.dev/) SDK
+core for Elixir: an SSE encoder and pure event constructors for
+`datastar-patch-elements` and `datastar-patch-signals` events. It targets
+Datastar v1.0.4 and requires Elixir >= 1.18, since the core encodes and
+decodes JSON with the standard-library `JSON` module.
 
 ## Installation
 

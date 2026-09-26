@@ -5,6 +5,8 @@ defmodule Datastar.ScriptTest do
 
   doctest Datastar.Script
 
+  defp encoded(event), do: event |> Datastar.SSE.encode() |> IO.iodata_to_binary()
+
   describe "execute/2 expansion (§8.2)" do
     test "defaults: body-append element patch with auto-removal" do
       assert Script.execute("console.log('hi')") == %{
@@ -136,13 +138,16 @@ defmodule Datastar.ScriptTest do
     end
 
     test "the exact §8.5 example" do
-      assert Script.execute(
-               "console.log('hello')",
-               auto_remove: false,
-               attributes: %{"type" => "module"},
-               event_id: "event-1",
-               retry_duration: 2_000
-             ) == %{
+      event =
+        Script.execute(
+          "console.log('hello')",
+          auto_remove: false,
+          attributes: %{"type" => "module"},
+          event_id: "event-1",
+          retry_duration: 2_000
+        )
+
+      assert event == %{
                event: "datastar-patch-elements",
                id: "event-1",
                retry: 2_000,
@@ -150,6 +155,12 @@ defmodule Datastar.ScriptTest do
                  "selector body\nmode append\n" <>
                    ~s(elements <script type="module">console.log\('hello'\)</script>)
              }
+
+      assert encoded(event) ==
+               "event: datastar-patch-elements\nid: event-1\nretry: 2000\n" <>
+                 "data: selector body\ndata: mode append\n" <>
+                 ~s(data: elements <script type="module">console.log\('hello'\)</script>) <>
+                 "\n\n"
     end
   end
 end

@@ -146,10 +146,15 @@ defmodule Datastar.ElementsTest do
 
   describe "remove/2 (§6.5)" do
     test "removal by selector emits no elements dataline" do
-      assert Elements.remove("#obsolete") == %{
+      event = Elements.remove("#obsolete")
+
+      assert event == %{
                event: "datastar-patch-elements",
                data: "selector #obsolete\nmode remove"
              }
+
+      assert encoded(event) ==
+               "event: datastar-patch-elements\ndata: selector #obsolete\ndata: mode remove\n\n"
     end
 
     test "shared options pass through" do
