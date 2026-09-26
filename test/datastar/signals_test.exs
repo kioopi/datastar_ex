@@ -93,4 +93,94 @@ defmodule Datastar.SignalsTest do
       assert_raise ArgumentError, fn -> Signals.patch_raw("{}", retry_duration: -1) end
     end
   end
+
+  describe "patch/2 (JSON-native maps, §7.1)" do
+    test "a map encodes to compact JSON and equals the patch_raw equivalent (§12.1)" do
+      event = Signals.patch(%{count: 2}, only_if_missing: true)
+
+      assert event == %{
+               event: "datastar-patch-signals",
+               data: ~s(onlyIfMissing true\nsignals {"count":2})
+             }
+
+      assert event == Signals.patch_raw(JSON.encode!(%{count: 2}), only_if_missing: true)
+    end
+
+    test "string, atom, and integer keys normalize to JSON member names" do
+      assert Signals.patch(%{"a" => 1}).data == ~s(signals {"a":1})
+      assert Signals.patch(%{a: 1}).data == ~s(signals {"a":1})
+      assert Signals.patch(%{1 => "x"}).data == ~s(signals {"1":"x"})
+    end
+
+    test "nil values encode to null (signal removal, §7.5)" do
+      assert Signals.patch(%{"one" => nil}).data == ~s(signals {"one":null})
+
+      event = Signals.patch(%{"two" => %{"alpha" => nil}})
+      assert event.data == ~s(signals {"two":{"alpha":null}})
+    end
+
+    # Review Focus 2: an empty object is a valid no-op merge patch.
+    test "an empty map is accepted and produces signals {}" do
+      assert Signals.patch(%{}) == %{event: "datastar-patch-signals", data: "signals {}"}
+    end
+
+    test "nested maps, lists, and Unicode values encode" do
+      assert Signals.patch(%{"s" => "wörld"}).data == ~s(signals {"s":"wörld"})
+
+      assert Signals.patch(%{"l" => [1, "a", nil, true]}).data ==
+               ~s(signals {"l":[1,"a",null,true]})
+
+      assert Signals.patch(%{"n" => %{"m" => [%{"k" => 1.5}]}}).data ==
+               ~s(signals {"n":{"m":[{"k":1.5}]}})
+    end
+
+    test "non-map input and structs are rejected at every depth" do
+      for bad <- [nil, "json", 42, [a: 1], ~D[2026-09-26]] do
+        assert_raise ArgumentError, fn -> Signals.patch(bad) end
+      end
+
+      assert_raise ArgumentError, ~r/unsupported JSON value/, fn ->
+        Signals.patch(%{"when" => ~D[2026-09-26]})
+      end
+
+      assert_raise ArgumentError, ~r/unsupported JSON value/, fn ->
+        Signals.patch(%{"deep" => %{"date" => [~D[2026-09-26]]}})
+      end
+    end
+
+    test "unsupported value terms are rejected" do
+      for bad <- [:atom_value, {:tuple, 1}, self(), make_ref(), fn -> :x end] do
+        assert_raise ArgumentError, ~r/unsupported JSON value/, fn ->
+          Signals.patch(%{"v" => bad})
+        end
+      end
+    end
+
+    test "improper lists are rejected" do
+      assert_raise ArgumentError, ~r/proper list/, fn -> Signals.patch(%{"l" => [1 | 2]}) end
+    end
+
+    test "unsupported key types and malformed binaries are rejected" do
+      assert_raise ArgumentError, ~r/map keys/, fn -> Signals.patch(%{1.5 => "x"}) end
+      assert_raise ArgumentError, ~r/UTF-8/, fn -> Signals.patch(%{<<0xFF>> => "x"}) end
+      assert_raise ArgumentError, ~r/UTF-8/, fn -> Signals.patch(%{"k" => <<0xFF>>}) end
+    end
+
+    test "normalized key collisions are rejected at any depth (§7.1)" do
+      assert_raise ArgumentError, ~r/duplicate JSON member name "count"/, fn ->
+        Signals.patch(%{:count => 1, "count" => 2})
+      end
+
+      assert_raise ArgumentError, ~r/duplicate JSON member name/, fn ->
+        Signals.patch(%{"outer" => %{:x => 1, "x" => 2}})
+      end
+    end
+
+    # Review Focus 4: integer/string collisions are collisions too.
+    test "integer and string keys colliding after normalization are rejected" do
+      assert_raise ArgumentError, ~r/duplicate JSON member name "1"/, fn ->
+        Signals.patch(%{1 => "a", "1" => "b"})
+      end
+    end
+  end
 end
