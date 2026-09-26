@@ -112,4 +112,28 @@ defmodule Datastar.Generators do
   def normalize_key(k) when is_binary(k), do: k
   def normalize_key(k) when is_atom(k), do: Atom.to_string(k)
   def normalize_key(k) when is_integer(k), do: Integer.to_string(k)
+
+  @doc "Script sources weighted with quotes, tags, newlines, and breakout shapes."
+  def script_source do
+    frequency([
+      {4, string(:utf8, max_length: 30)},
+      {2,
+       member_of([
+         "console.log('</script>')",
+         "if (a </SCRIPT> b) {}",
+         "let s = \"</ScRiPt\";",
+         "a();\nb();\n",
+         ""
+       ])}
+    ])
+  end
+
+  @doc "Safe attribute maps with valid names and plain binary values."
+  def safe_attributes do
+    name = string([?a..?z, ?0..?9, ?-, ?_], min_length: 1, max_length: 10)
+    value = string(:utf8, max_length: 15)
+
+    map_of(name, value, max_length: 3)
+    |> map(&Map.delete(&1, "data-effect"))
+  end
 end
