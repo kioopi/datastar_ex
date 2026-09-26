@@ -119,6 +119,14 @@ defmodule Datastar.SignalsTest do
       assert event.data == ~s(signals {"two":{"alpha":null}})
     end
 
+    test "the exact §7.5 removing-signals example" do
+      assert Signals.patch(%{"one" => nil, "two" => %{"alpha" => nil}}) ==
+               %{
+                 event: "datastar-patch-signals",
+                 data: ~s(signals {"one":null,"two":{"alpha":null}})
+               }
+    end
+
     # Review Focus 2: an empty object is a valid no-op merge patch.
     test "an empty map is accepted and produces signals {}" do
       assert Signals.patch(%{}) == %{event: "datastar-patch-signals", data: "signals {}"}

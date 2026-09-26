@@ -1784,33 +1784,33 @@ Coverage percentage is not the main target. The project SHOULD maintain a requir
 
 ### 20.1 Pure SDK core
 
-- [ ] `Datastar.Elements.patch/2` implements every v1.0.4 mode, namespace, and option.
-- [ ] `Datastar.Elements.remove/2` is a strict convenience constructor.
-- [ ] `Datastar.Signals.patch/2` implements the documented JSON-native map domain via the standard-library `JSON` and `onlyIfMissing`.
-- [ ] Structs, unsupported nested terms, malformed binaries, and normalized JSON key collisions are rejected predictably.
-- [ ] `Datastar.Signals.patch_raw/2` implements raw JSON signal patches.
-- [ ] `Datastar.Script.execute/2` expands through element patching with safe attribute handling.
-- [ ] The `Datastar` facade delegates to every constructor without added behavior.
-- [ ] `Datastar.Signals.Reader` implements the pure source and decode logic.
-- [ ] Every constructor returns `Datastar.SSE.event()` and never preformats SSE.
-- [ ] Defaults are omitted canonically.
-- [ ] Trailing empty or ASCII-whitespace-only element lines are trimmed as the documented interoperability policy; all interior lines and retained-line whitespace are preserved.
-- [ ] Unknown and duplicate options fail explicitly.
-- [ ] Single-line dataline values reject injection characters.
-- [ ] Multiline values are normalized and re-prefixed correctly.
-- [ ] Production core has zero runtime dependencies and states the Elixir ≥ 1.18 floor.
+- [x] `Datastar.Elements.patch/2` implements every v1.0.4 mode, namespace, and option. — `test/datastar/elements_test.exs`: "every non-default mode emits its dataline" (all six modes), "every non-default namespace emits its dataline" (svg, mathml; html is default), "all non-default options together, canonical dataline order (§6.3)" (selector, mode, use_view_transition, view_transition_selector, namespace, event_id, retry_duration).
+- [x] `Datastar.Elements.remove/2` is a strict convenience constructor. — `test/datastar/elements_test.exs`, describe "remove/2 (§6.5)": "removal by selector emits no elements dataline", "shared options pass through", "conflicting :mode or :selector options are rejected".
+- [x] `Datastar.Signals.patch/2` implements the documented JSON-native map domain via the standard-library `JSON` and `onlyIfMissing`. — `test/datastar/signals_test.exs`, describe "patch/2 (JSON-native maps, §7.1)" (whole block); `test/datastar/signals_property_test.exs` property "patch/2 equals patch_raw of the normalized encoding (§12.10)".
+- [x] Structs, unsupported nested terms, malformed binaries, and normalized JSON key collisions are rejected predictably. — `test/datastar/signals_test.exs`: "non-map input and structs are rejected at every depth", "unsupported value terms are rejected", "improper lists are rejected", "unsupported key types and malformed binaries are rejected", "normalized key collisions are rejected at any depth (§7.1)", "integer and string keys colliding after normalization are rejected".
+- [x] `Datastar.Signals.patch_raw/2` implements raw JSON signal patches. — `test/datastar/signals_test.exs`, describe "patch_raw/2" (whole block, including §7.3/§7.6 multiline and validation tests).
+- [x] `Datastar.Script.execute/2` expands through element patching with safe attribute handling. — `test/datastar/script_test.exs`, describe "execute/2 expansion (§8.2)" (whole block: defaults, attribute sorting/escaping, `</script` neutralization, reserved `data-effect`); `test/datastar/script_property_test.exs` property "execute equals the documented Elements.patch expansion (§12.10)".
+- [x] The `Datastar` facade delegates to every constructor without added behavior. — `test/datastar_test.exs`, describe "facade delegation (§4.6)": "each facade function returns exactly the constructor's event" (covers `patch_elements`, `remove_elements`, `patch_signals`, `patch_signals_raw`, `execute_script`).
+- [x] `Datastar.Signals.Reader` implements the pure source and decode logic. — `test/datastar/signals/reader_test.exs` (whole file: `source/1` §9.3, `decode/2` success/error/decoder-contract §9.1).
+- [x] Every constructor returns `Datastar.SSE.event()` and never preformats SSE. — every exact test in `elements_test.exs`, `signals_test.exs`, `script_test.exs` asserts an event `%{event: ..., data: ...}` map, never a preformatted string (e.g. `elements_test.exs:14-17`, `signals_test.exs:14`, `script_test.exs:10-15`); `Datastar.SSE.encode/1` is called separately by test helpers, never by the constructors under test.
+- [x] Defaults are omitted canonically. — `test/datastar/elements_test.exs` "each default explicitly supplied equals omission (§3.5)"; `test/datastar/options_test.exs` "retry_duration 1000 is the default and is omitted"; `test/datastar/elements_property_test.exs` property "explicitly supplied defaults equal omission".
+- [x] Trailing empty or ASCII-whitespace-only element lines are trimmed as the documented interoperability policy; all interior lines and retained-line whitespace are preserved. — `test/datastar/dataline_test.exs`, describe "trim_trailing_blank/1" (whole block); `test/datastar/elements_test.exs` "trailing newlines and whitespace-only lines are trimmed", "interior empty lines are preserved as empty elements datalines", "whitespace on the final retained line is preserved"; `test/datastar/elements_property_test.exs` property "trailing-blank-line trimming is idempotent under appended newlines".
+- [x] Unknown and duplicate options fail explicitly. — `test/datastar/options_test.exs` "raises on unknown option", "raises on duplicate option"; per-constructor: `elements_test.exs` "non-binary selectors and unknown/duplicate options are rejected", `signals_test.exs` "invalid, unknown, and duplicate options are rejected", `script_test.exs` "shared event options forward through the expansion; invalid options rejected".
+- [x] Single-line dataline values reject injection characters. — `test/datastar/elements_test.exs` "selector injection characters are rejected, not stripped (§15.1)", "a selector cannot forge a mode dataline"; `test/datastar/options_test.exs` "invalid event_id raises" (rejects `\n`, `\r`, `\0`); `test/datastar/elements_property_test.exs` property "selectors with injected line endings always raise without partial output (§12.9)".
+- [x] Multiline values are normalized and re-prefixed correctly. — `test/datastar/elements_test.exs` "multiline LF, CRLF, CR, and mixed input normalize identically", "element content cannot forge an SSE field: every line is re-prefixed"; `test/datastar/signals_test.exs` "multiline JSON: every line ending style, one dataline per line, trailing preserved (§7.3)"; `test/datastar/script_test.exs` "multiline scripts become multiple elements datalines".
+- [x] Production core has zero runtime dependencies and states the Elixir ≥ 1.18 floor. — `mix.exs`: `elixir: "~> 1.18"` in `project/0`; every entry in `deps/0` is `only: :dev`, `only: :test`, or `only: [:dev, :test]` (no unconditional runtime dependency).
 
 ### 20.2 Core tests
 
-- [ ] Every public constructor has exact semantic-map tests.
-- [ ] Every public constructor has exact encoded-wire tests.
-- [ ] Every enum value and default has direct coverage.
-- [ ] Every validation rule has a negative test.
-- [ ] Validation failures, reader error tuples, and propagated callback/encoder exceptions follow their distinct specified contracts.
-- [ ] Security-shaped inputs have named regressions.
-- [ ] StreamData covers valid values, invalid values, defaults, multiline data, and composition.
-- [ ] SSE independent-decoder round trips pass for generated constructor output.
-- [ ] Any property-discovered bug has a permanent deterministic regression.
+- [x] Every public constructor has exact semantic-map tests. — exact `==` assertions against event maps throughout `test/datastar/elements_test.exs`, `test/datastar/signals_test.exs`, `test/datastar/script_test.exs` (e.g. "the exact §6.7 'patch with options' example", "the exact §7.5 removing-signals example", "the exact §8.5 example").
+- [x] Every public constructor has exact encoded-wire tests. — `elements_test.exs` and `signals_test.exs` local `encoded/1` helpers asserting exact wire bytes (e.g. `elements_test.exs:19-21`, `signals_test.exs:16-18`); `test/datastar/sse_test.exs` describe "encode/1 canonical bytes" covers the shared encoder exactly.
+- [x] Every enum value and default has direct coverage. — `test/datastar/elements_test.exs` "every non-default mode emits its dataline" (all six modes plus default `:outer` via "each default explicitly supplied equals omission"), "every non-default namespace emits its dataline" (`:svg`, `:mathml`, default `:html`).
+- [x] Every validation rule has a negative test. — `test/datastar/elements_test.exs` describe "patch/2 validation (§6.6)" and "remove/2 (§6.5)" conflict tests; `test/datastar/signals_test.exs` "invalid raw input is rejected (§7.6)", "invalid, unknown, and duplicate options are rejected", plus every `patch/2` rejection test; `test/datastar/script_test.exs` "invalid attribute names, values, and shapes are rejected (§8.6)"; `test/datastar/options_test.exs` invalid `event_id`/`retry_duration`; `test/datastar/sse_test.exs` describe "encode/1 validation".
+- [x] Validation failures, reader error tuples, and propagated callback/encoder exceptions follow their distinct specified contracts. — `test/datastar/signals/reader_test.exs` describe "decode/2 decoder contract (§9.1)": "programmer errors raise ArgumentError" (invalid arguments), "a well-shaped decoder error maps to :invalid_json" (`{:error, _}` contract), "exceptions from caller decoder code propagate unchanged" (raised exceptions pass through); `test/datastar/signals_test.exs` "invalid raw input is rejected (§7.6)" distinguishes `ArgumentError` (validation) from encoder propagation per §7.6's final paragraph.
+- [x] Security-shaped inputs have named regressions. — `test/datastar/elements_test.exs` describe "security regressions (§15.1)" ("a selector cannot forge a mode dataline", "element content cannot forge an SSE field"); `test/datastar/script_test.exs` "every case variation of </script is neutralized (§8.4)", "attribute values are escaped for the attribute context"; `test/datastar/elements_property_test.exs` property "selectors with injected line endings always raise without partial output (§12.9)".
+- [x] StreamData covers valid values, invalid values, defaults, multiline data, and composition. — `test/datastar/elements_property_test.exs`, `test/datastar/signals_property_test.exs`, `test/datastar/script_property_test.exs`, `test/datastar/sse_property_test.exs` together cover valid patches (determinism/typing properties), invalid events (`sse_property_test.exs` "every constructed invalid event raises ArgumentError"), explicit defaults equalling omission, multiline HTML/JSON (`Generators.multiline_text/0`, raw multiline JSON property), and option/attribute composition (`Generators.element_opts/0`, `Generators.safe_attributes/0`).
+- [x] SSE independent-decoder round trips pass for generated constructor output. — `test/datastar/elements_property_test.exs` property "encoding round-trips through the independent SSE decoder"; `test/datastar/script_property_test.exs` property "attribute values cannot escape their quotes; events round-trip"; `test/datastar/signals_property_test.exs` property "raw multiline JSON text: every line prefixed exactly once, round-trips" — all three decode with the independent `ServerSentEvents` library, not `Datastar.SSE` itself.
+- [x] Any property-discovered bug has a permanent deterministic regression. — `test/datastar/elements_test.exs`, `test/datastar/signals_test.exs`, and `test/datastar/script_test.exs` each carry named "Review Focus N" regressions (e.g. "Unicode separators U+2028, U+0085, U+000B are content, not line breaks", "an atom-keyed data-effect hits the reservation too") pinning edge cases surfaced while auditing the property suites. Caveat: these are labeled as review-discovered, not as failures thrown by an actual `mix test` property run in this repo's history — no such run-time failure is recorded here, so the practice is verified but the item's literal premise ("a bug the properties found") has not yet been exercised.
 
 ### 20.3 Plug boundary
 
@@ -1836,11 +1836,11 @@ Coverage percentage is not the main target. The project SHOULD maintain a requir
 
 ### 20.5 Documentation and release
 
-- [ ] Compatibility with Datastar v1.0.4 is stated.
-- [ ] The source-precedence and known-inconsistency table is maintained.
-- [ ] Module/package boundaries are documented.
-- [ ] Trust and security boundaries are explicit.
-- [ ] A compatibility/drift procedure exists for future Datastar releases.
+- [x] Compatibility with Datastar v1.0.4 is stated. — spec header, line 6: "**Datastar compatibility target:** v1.0.4"; §2.1 pins the tag; the resulting trust claim in §21 restates it.
+- [x] The source-precedence and known-inconsistency table is maintained. — §2.2 "Source hierarchy" and §2.3 "Known upstream inconsistencies" (the table) are present and match the implemented decisions (e.g. the trailing-element-lines row matches `Dataline.trim_trailing_blank/1` and its tests).
+- [x] Module/package boundaries are documented. — §4 "Module structure and boundaries" (§4.1–§4.9) documents every module's responsibility and boundary; every `lib/` module (`Datastar`, `Datastar.SSE`, `Datastar.Elements`, `Datastar.Signals`, `Datastar.Signals.Reader`, `Datastar.Script`, `Datastar.Dataline`, `Datastar.Options`) carries a `@moduledoc` per CLAUDE.md's documentation rule.
+- [x] Trust and security boundaries are explicit. — §15 "Security requirements" (§15.1–§15.5) states the protocol-safety-vs-application-content-safety distinction and injection boundaries; `lib/datastar/script.ex`'s moduledoc restates the trusted-script boundary in the shipped documentation, not only the spec.
+- [x] A compatibility/drift procedure exists for future Datastar releases. — §18.2 "Upstream drift process" gives the six-step procedure (diff ADR/config/fixtures/runner, re-run the pinned suite, classify the diff, update the compatibility matrix, add tests before production changes, release by semver impact).
 
 ## 21. Resulting trust claim
 

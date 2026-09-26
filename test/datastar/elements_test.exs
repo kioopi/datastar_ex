@@ -45,6 +45,23 @@ defmodule Datastar.ElementsTest do
              }
     end
 
+    test "the exact §6.7 'patch with options' example" do
+      assert Elements.patch(
+               "<li>New</li>",
+               selector: "#feed",
+               mode: :append,
+               use_view_transition: true,
+               namespace: :html,
+               event_id: "event-1",
+               retry_duration: 2_000
+             ) == %{
+               event: "datastar-patch-elements",
+               id: "event-1",
+               retry: 2_000,
+               data: "selector #feed\nmode append\nuseViewTransition true\nelements <li>New</li>"
+             }
+    end
+
     test "every non-default mode emits its dataline" do
       for mode <- [:inner, :replace, :prepend, :append, :before, :after] do
         assert Elements.patch("<i>x</i>", mode: mode).data ==
