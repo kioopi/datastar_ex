@@ -1,11 +1,15 @@
 # Datastar SDK core specification for Elixir
 
 **Status:** Draft for implementation  
-**Specification version:** 0.1  
-**Date:** 2026-09-25  
+**Specification version:** 0.2  
+**Date:** 2026-09-26  
 **Datastar compatibility target:** v1.0.4  
-**Project:** `datastar_ex`  
+**Minimum Elixir version:** 1.18 (standard-library `JSON`)  
+**Project:** `datastar_ex` (package version at time of writing: v0.0.1, pre-release)  
 **Scope:** Low-level Datastar event construction, signal reading, transport boundaries, and conformance testing
+
+Changes relative to specification 0.1 are explained in the
+[specification changelog](#23-specification-changelog).
 
 ## 1. Purpose
 
@@ -104,8 +108,8 @@ The intended future packaging is:
 
 | Possible package | Responsibility | Runtime dependencies |
 | --- | --- | --- |
-| `datastar_ex` | SSE encoding and pure Datastar event construction | none |
-| `datastar_plug` | `%Plug.Conn{}` streaming and signal reading | `datastar_ex`, Plug, caller-selected JSON decoder |
+| `datastar_ex` | SSE encoding, pure Datastar event construction, pure signal decoding | none (requires Elixir ≥ 1.18 for the standard-library `JSON` module) |
+| `datastar_plug` | `%Plug.Conn{}` streaming and body/query fetching for signal reading | `datastar_ex`, Plug |
 | `datastar_phoenix` | `Phoenix.HTML.Safe`, HEEx, components, and Phoenix-specific sugar | core/Plug packages and Phoenix |
 | test support | Official conformance server and shared generators | test-only dependencies |
 
@@ -157,18 +161,22 @@ The recommended initial layout is:
 
 ```text
 lib/
+  datastar.ex                     # facade
   datastar/
     sse.ex
     elements.ex
     signals.ex
+    signals/reader.ex
     script.ex
 
 test/
+  datastar_test.exs
   datastar/
     elements_test.exs
     elements_property_test.exs
     signals_test.exs
     signals_property_test.exs
+    signals/reader_test.exs
     script_test.exs
     script_property_test.exs
 
@@ -242,18 +250,39 @@ Does not own:
 Owns:
 
 - construction and validation of `datastar-patch-signals` events;
+- encoding Elixir terms to JSON via the standard-library `JSON` module;
 - `onlyIfMissing` semantics;
 - prefixing every logical JSON line with `signals `; and
 - documentation of RFC 7386 JSON Merge Patch semantics.
 
-Does not own in the dependency-free core:
+Does not own:
 
-- encoding arbitrary Elixir terms to JSON;
-- decoding request JSON;
+- decoding request JSON (that is `Datastar.Signals.Reader`);
 - reading Plug request bodies; or
 - applying merge patches locally.
 
-### 4.4 `Datastar.Script`
+### 4.4 `Datastar.Signals.Reader`
+
+The pure, framework-independent half of incoming signal reading. Owns:
+
+- the method-to-source decision (query parameter versus request body);
+- decoding a raw signals binary with the standard-library `JSON` module or a
+  caller-supplied decoder;
+- requiring a JSON object; and
+- the stable error categories for malformed input.
+
+Does not own:
+
+- fetching query parameters;
+- reading request bodies;
+- enforcing transport size limits; or
+- anything touching `%Plug.Conn{}`.
+
+This module exists so that a Plug adapter, a WebSocket transport, or any
+future framework integration reuses one tested decision table instead of
+reimplementing it.
+
+### 4.5 `Datastar.Script`
 
 Owns:
 
@@ -264,7 +293,24 @@ Owns:
 
 It does not introduce a third Datastar event type. Script execution is an element patch.
 
-### 4.5 `Datastar.Plug`
+### 4.6 `Datastar` facade
+
+The top-level `Datastar` module is the primary public surface and MUST exist
+from the first release. It mirrors the function names of the official SDKs so
+that users arriving from other languages find the expected entry points:
+
+```elixir
+defdelegate patch_elements(elements, opts \\ []), to: Datastar.Elements, as: :patch
+defdelegate remove_elements(selector, opts \\ []), to: Datastar.Elements, as: :remove
+defdelegate patch_signals(signals, opts \\ []), to: Datastar.Signals, as: :patch
+defdelegate patch_signals_raw(json, opts \\ []), to: Datastar.Signals, as: :patch_raw
+defdelegate execute_script(script, opts \\ []), to: Datastar.Script, as: :execute
+```
+
+The facade adds no behavior. It MUST delegate without transforming arguments
+or results, and it is part of the stable public contract (§18.1).
+
+### 4.7 `Datastar.Plug`
 
 This is an integration boundary, whether it begins inside the repository or in a later package.
 
@@ -279,18 +325,20 @@ Owns:
 
 It MUST NOT reconstruct Datastar datalines already present in an event.
 
-### 4.6 `Datastar.Plug.Signals`
+### 4.8 `Datastar.Plug.Signals`
 
-Owns:
+A thin effectful shell over `Datastar.Signals.Reader`. Owns:
 
-- selecting query or body input based on the request method;
 - fetching query parameters when needed;
 - reading a body incrementally while enforcing a total size limit;
-- using a caller-supplied JSON decoder;
-- requiring a JSON object; and
+- mapping an empty body to an empty signal map;
+- wrapping adapter read errors; and
 - returning the updated connection on both success and failure.
 
-### 4.7 Test and conformance support
+It MUST delegate source selection, decoding, and object validation to
+`Datastar.Signals.Reader` rather than duplicating them.
+
+### 4.9 Test and conformance support
 
 Test support owns:
 
@@ -432,8 +480,18 @@ When elements are present:
 2. it MUST be converted once with `IO.iodata_to_binary/1`;
 3. the binary MUST be valid UTF-8;
 4. CRLF and standalone CR MUST normalize to LF;
-5. it MUST be split on LF with trailing empty components preserved; and
-6. each component MUST be prefixed with `elements `.
+5. it MUST be split on LF;
+6. trailing logical lines that are empty or consist only of ASCII whitespace
+   MUST be removed; interior lines, including empty ones, MUST be preserved
+   unchanged; and
+7. each remaining component MUST be prefixed with `elements `.
+
+Trailing-line trimming exists because template engines end rendered output
+with a newline; without it, every real-world patch would carry a useless
+empty `elements` dataline. Trimming trailing whitespace-only lines is
+normalization, not content coercion, and matches the effective behavior of
+the official SDKs. Input that becomes empty after trimming is treated as
+absent elements and follows §6.5.
 
 Example input:
 
@@ -464,7 +522,8 @@ data: elements </div>
 
 ### 6.5 Required elements and selectors
 
-Elements MUST be non-empty unless all of these are true:
+Elements MUST be non-empty after trailing-line trimming (§6.4) unless all of
+these are true:
 
 - `mode` is `:remove`; and
 - a non-empty selector is supplied.
@@ -563,29 +622,37 @@ Datastar.Elements.remove("#obsolete")
         | {:event_id, String.t()}
         | {:retry_duration, non_neg_integer()}
 
-@spec patch(String.t(), [patch_option()]) :: Datastar.SSE.event()
-def patch(json, opts \\ [])
+@spec patch(map(), [patch_option()]) :: Datastar.SSE.event()
+def patch(signals, opts \\ [])
+
+@spec patch_raw(String.t(), [patch_option()]) :: Datastar.SSE.event()
+def patch_raw(json, opts \\ [])
 ```
 
-The dependency-free core accepts a JSON binary, not an arbitrary Elixir term.
+`patch/2` is the recommended API. It accepts an Elixir map, encodes it with
+the standard-library `JSON` module (`JSON.encode!/1`, Elixir ≥ 1.18), and
+guarantees valid JSON by construction. It MUST reject non-map input: a
+signal merge patch is a JSON object, and accepting bare scalars or lists
+would construct events the client cannot apply.
 
-Framework or integration packages MAY provide APIs such as:
-
-```elixir
-patch_term(term, encoder, opts)
-```
-
-Such APIs MUST encode first and delegate to `Datastar.Signals.patch/2`. They MUST NOT duplicate dataline construction.
+`patch_raw/2` accepts a pre-encoded JSON binary for callers that bring their
+own encoder or need exact control over the wire text. Both functions MUST
+share one dataline-construction path; `patch/2` behaves as `patch_raw/2`
+after encoding.
 
 ### 7.2 JSON contract
 
-The `json` argument MUST:
+The `json` argument of `patch_raw/2` MUST:
 
 - be a valid UTF-8 binary;
 - be non-empty after checking only for actual absence, not after altering content; and
 - contain a valid JSON value appropriate for a Datastar signal merge patch.
 
-Because the core has no JSON dependency, JSON grammar validity is a documented caller precondition rather than a production validation claim. Test adapters that already decode input SHOULD ensure that ordinary signal patches are objects.
+JSON grammar validity of raw input is a documented caller precondition:
+`patch_raw/2` exists precisely to avoid re-processing already-encoded JSON,
+so it MUST NOT decode its input merely to validate it. Callers who want
+validation by construction use `patch/2`. Test adapters that already decode
+input SHOULD ensure that ordinary signal patches are objects.
 
 The event represents RFC 7386 JSON Merge Patch semantics:
 
@@ -602,12 +669,18 @@ Canonical order:
 1. `onlyIfMissing true`, if enabled;
 2. one `signals` dataline for every normalized logical JSON line.
 
-JSON line endings MUST be normalized from CRLF and CR to LF. Trailing empty logical lines MUST be preserved.
+JSON line endings MUST be normalized from CRLF and CR to LF. Trailing empty logical lines MUST be preserved. This deliberately differs from the elements normalization (§6.4): raw JSON is caller-encoded, `patch_raw/2` is faithful transport, and there is no template-render source producing incidental trailing newlines here.
 
 Example:
 
 ```elixir
-Datastar.Signals.patch(~s({"count":2}), only_if_missing: true)
+Datastar.Signals.patch(%{count: 2}, only_if_missing: true)
+```
+
+or, equivalently:
+
+```elixir
+Datastar.Signals.patch_raw(~s({"count":2}), only_if_missing: true)
 ```
 
 ```elixir
@@ -619,7 +692,8 @@ Datastar.Signals.patch(~s({"count":2}), only_if_missing: true)
 
 ### 7.4 Multiline JSON
 
-Given:
+Multiline JSON reaches the wire only through `patch_raw/2`; `patch/2`
+produces compact single-line JSON. Given:
 
 ```json
 {
@@ -637,7 +711,7 @@ data: signals   "two": 2
 data: signals }
 ```
 
-The constructor does not compact or reformat caller-supplied JSON.
+`patch_raw/2` does not compact or reformat caller-supplied JSON.
 
 ### 7.5 Removing signals
 
@@ -647,21 +721,36 @@ Removing signals is not a distinct wire operation. It is a signal merge patch co
 {"one":null,"two":{"alpha":null}}
 ```
 
-A future JSON-aware convenience module MAY construct nested removal patches from dot paths. It is not required in the dependency-free core and MUST delegate to `patch/2` after encoding.
+With the map API this is simply:
+
+```elixir
+Datastar.Signals.patch(%{"one" => nil, "two" => %{"alpha" => nil}})
+```
+
+`nil` encodes as JSON `null`. A future convenience module MAY construct
+nested removal patches from dot paths; it MUST delegate to `patch/2` rather
+than building datalines itself.
 
 ### 7.6 Validation
 
-The constructor MUST reject:
+`patch/2` MUST reject:
+
+- non-map input; and
+- maps the standard-library `JSON` encoder cannot encode (the encoder's
+  exception propagates or is wrapped as `ArgumentError`).
+
+`patch_raw/2` MUST reject:
 
 - non-binary input;
-- malformed UTF-8;
-- the empty binary;
+- malformed UTF-8; and
+- the empty binary.
+
+Both MUST reject:
+
 - unknown or duplicate options;
 - non-boolean `only_if_missing`;
 - invalid event IDs; and
 - invalid retry values.
-
-It MUST NOT silently accept an Elixir map and call an undeclared JSON implementation.
 
 ## 8. Script execution
 
@@ -758,9 +847,40 @@ An empty script MAY be accepted. It is still a valid script element and avoids i
 
 ## 9. Incoming signals
 
-Incoming signal reading crosses the pure/effectful boundary and therefore belongs in an HTTP adapter.
+Incoming signal reading splits into a pure decision core and an effectful
+HTTP shell. `Datastar.Signals.Reader` owns everything that can be decided
+from values alone; the adapter owns only fetching and connection state.
 
-### 9.1 Plug API
+### 9.1 Pure reader API
+
+`Datastar.Signals.Reader` SHOULD expose:
+
+```elixir
+@type decode_error :: :invalid_json | :not_an_object
+
+@spec source(method :: String.t()) :: :query | :body
+
+@spec decode(binary(), keyword()) :: {:ok, map()} | {:error, decode_error()}
+```
+
+`source/1` implements the data-location table in §9.3 and MUST compare
+methods case-insensitively.
+
+`decode/2` MUST:
+
+- decode with the standard-library `JSON.decode/1` by default;
+- accept a `:decoder` option with the contract
+  `(binary() -> {:ok, term()} | {:error, term()})` so applications can
+  substitute another JSON implementation without a core dependency change;
+- return `{:error, :invalid_json}` for undecodable input, including the
+  empty binary; and
+- return `{:error, :not_an_object}` for a decoded array, scalar, or null.
+
+Missing input (an absent query key, an empty body) never reaches `decode/2`;
+mapping absence to an empty signal map is the adapter's job, because "absent"
+means different things per source (§9.4, §9.5).
+
+### 9.2 Plug API
 
 A Plug adapter SHOULD expose:
 
@@ -769,7 +889,6 @@ A Plug adapter SHOULD expose:
         :invalid_json
         | :not_an_object
         | :too_large
-        | :missing_decoder
         | {:read_body, term()}
 
 @spec read_signals(Plug.Conn.t(), keyword()) ::
@@ -777,9 +896,10 @@ A Plug adapter SHOULD expose:
         | {:error, read_error(), Plug.Conn.t()}
 ```
 
-The updated connection MUST always be returned because reading a Plug request body updates adapter state.
+The updated connection MUST always be returned because reading a Plug request body updates adapter state. Decoding errors are those of
+`Datastar.Signals.Reader.decode/2`, passed through unchanged.
 
-### 9.2 Data location
+### 9.3 Data location
 
 | Method | Source |
 | --- | --- |
@@ -791,17 +911,17 @@ Using “every other method” intentionally supports Datastar's `QUERY` action 
 
 The method comparison SHOULD be case-insensitive at a framework-independent boundary; `%Plug.Conn{}` normally supplies uppercase methods.
 
-### 9.3 Query behavior
+### 9.4 Query behavior
 
 For GET and DELETE:
 
 - query parameters MUST be fetched if needed;
-- a missing `datastar` key returns an empty map;
-- `datastar=` is present input and MUST be decoded, producing `:invalid_json` for the empty string;
+- a missing `datastar` key returns an empty map without calling `decode/2`;
+- `datastar=` is present input and MUST be passed to `decode/2`, producing `:invalid_json` for the empty string;
 - the decoded value MUST be a JSON object; and
 - the adapter SHOULD enforce a configurable query-size limit before decoding.
 
-### 9.4 Body behavior
+### 9.5 Body behavior
 
 For body methods:
 
@@ -810,20 +930,17 @@ For body methods:
 - repeated `{:more, chunk, conn}` results MUST be accumulated;
 - the total accumulated byte count MUST be limited, not merely each individual read;
 - the default maximum SHOULD be `1_000_000` bytes;
-- an empty body returns an empty map;
-- malformed JSON returns `:invalid_json`;
-- a decoded array, scalar, or null returns `:not_an_object`; and
+- an empty body returns an empty map without calling `decode/2`;
+- all other bodies are passed to `Datastar.Signals.Reader.decode/2`, whose
+  `:invalid_json` and `:not_an_object` errors pass through; and
 - adapter read errors are wrapped as `{:read_body, reason}`.
 
-The JSON decoder MUST be supplied explicitly by the integration package or application. A minimal supported contract is:
+The JSON decoder defaults to the standard-library `JSON.decode/1`. The
+adapter MUST forward a caller-supplied `:decoder` option to the reader
+unchanged, so applications can adapt modules such as Jason to the function
+contract without a core dependency.
 
-```elixir
-(binary() -> {:ok, term()} | {:error, term()})
-```
-
-A package MAY adapt modules such as Jason to that function shape without making Jason a core dependency.
-
-### 9.5 Ordering constraint
+### 9.6 Ordering constraint
 
 Signals MUST be read before starting the SSE response. Once the response is chunked, malformed input can no longer receive a normal 400 or 413 response.
 
@@ -908,6 +1025,19 @@ That process is not required for the low-level first milestone.
 
 The transport MAY expose `send_comment/2` for caller-driven heartbeat comments. Scheduling, intervals, supervision, and liveness policy remain outside the low-level adapter.
 
+### 10.6 Telemetry (deferred)
+
+`:telemetry` instrumentation of the transport boundary — event sent, chunk
+failed, signals read or rejected — is the Elixir ecosystem convention for
+infrastructure libraries and is a natural fit for the Plug adapter, not the
+pure core.
+
+It is **deliberately deferred**: no `:telemetry` events are emitted in the
+v0.x series, and `:telemetry` is not a dependency. This is a scope decision,
+not an oversight. When it is added it belongs in the adapter layer, MUST NOT
+leak into the pure constructors, and will be introduced as a `feat` change
+with documented event names and measurements.
+
 ## 11. Official Datastar conformance server
 
 The upstream suite is an HTTP black-box test. A pure library cannot run it without a small executable server.
@@ -985,7 +1115,7 @@ The dispatcher converts known string enums to the core atoms. It does not pass u
 }
 ```
 
-For ordinary `signals`, the dispatcher encodes the decoded value as compact JSON using its test-only JSON dependency. For `signals-raw`, it MUST use that string verbatim and prefer it over `signals`:
+For ordinary `signals`, the dispatcher encodes the decoded value as compact JSON. For `signals-raw`, it MUST use that string verbatim (via `patch_raw/2`) and prefer it over `signals`:
 
 ```json
 {
@@ -994,7 +1124,7 @@ For ordinary `signals`, the dispatcher encodes the decoded value as compact JSON
 }
 ```
 
-The official runner compares `signals` dataline contents textually rather than parsing JSON. The conformance adapter MUST therefore use deterministic compact JSON with object keys ordered lexicographically, including nested objects. This is a test-harness compatibility requirement, not a requirement imposed on callers of the raw JSON core API.
+The official runner compares `signals` dataline contents textually rather than parsing JSON. The conformance adapter MUST therefore use deterministic compact JSON with object keys ordered lexicographically, including nested objects. The standard-library `JSON` encoder does not guarantee key order, so test support implements this deterministic encoding itself (no third-party dependency is needed). This is a test-harness compatibility requirement, not a requirement imposed on callers of the core API.
 
 #### `executeScript`
 
@@ -1111,7 +1241,10 @@ Exact tests MUST cover:
 - all non-default options together;
 - view-transition selector with transitions enabled;
 - multiline LF, CRLF, CR, and mixed HTML;
-- empty internal lines and trailing newlines;
+- preserved empty internal lines;
+- trimmed trailing newlines and whitespace-only trailing lines, including a
+  template-shaped input ending in exactly one LF;
+- input that is empty only after trailing-line trimming, rejected outside removal;
 - iodata input;
 - non-ASCII HTML;
 - removal by selector with no elements;
@@ -1126,7 +1259,11 @@ Exact tests MUST cover:
 
 Exact tests MUST cover:
 
-- compact single-line JSON;
+- `patch/2` with maps: string and atom keys, nested maps, `nil` values
+  encoding to `null`, Unicode values, and equivalence to the corresponding
+  `patch_raw/2` call;
+- `patch/2` rejecting non-map input and unencodable terms;
+- compact single-line JSON via `patch_raw/2`;
 - `only_if_missing` true, false, explicit default, and omitted;
 - multiline LF, CRLF, CR, and mixed JSON text;
 - empty logical lines and trailing newlines;
@@ -1135,10 +1272,11 @@ Exact tests MUST cover:
 - Unicode JSON;
 - JSON null removal examples;
 - shared event options;
-- malformed UTF-8 and empty input; and
+- malformed UTF-8 and empty input to `patch_raw/2`; and
 - invalid/unknown/duplicate options.
 
-Production tests MUST not claim to validate JSON grammar unless a JSON decoder is deliberately invoked in that test layer.
+Tests MUST not claim that `patch_raw/2` validates JSON grammar; only
+`patch/2` guarantees valid JSON, by construction.
 
 ### 12.4 Script test matrix
 
@@ -1249,6 +1387,10 @@ patch(x, default: value) == patch(x)
 
 patch(normalize_newlines(x)) == patch(x)
 
+Elements.patch(x <> "\n") == Elements.patch(x)
+
+Signals.patch(map) == Signals.patch_raw(JSON.encode!(map))
+
 execute(script, opts) ==
   Elements.patch(generated_script_tag, selector: "body", mode: :append, shared_opts)
 
@@ -1288,7 +1430,13 @@ At least one test MUST run against a real supported server adapter rather than o
 
 ### 13.2 Signal reader tests
 
-Tests MUST cover:
+`Datastar.Signals.Reader` MUST have pure unit tests, with no Plug
+involvement, covering `source/1` for every documented method (including
+case-insensitivity and `QUERY`) and `decode/2` for every success and error
+category, with both the default standard-library decoder and a
+caller-supplied `:decoder`.
+
+Plug adapter tests MUST cover:
 
 - GET and DELETE query extraction;
 - URL decoding;
@@ -1368,15 +1516,28 @@ HTTP integrations MUST bound query and body input before decoding. The pure cons
 
 The pure core MUST have zero runtime dependencies beyond Elixir/Erlang.
 
+The minimum supported Elixir version is **1.18**, because the core uses the
+standard-library `JSON` module for signal encoding and decoding. This is a
+deliberate trade: a higher floor in exchange for a map-accepting signals API
+with no third-party dependency. The floor is part of the public contract and
+raising it is at least a MINOR change; `mix.exs`, CI matrices, and
+documentation MUST state it. Callers on older Elixir versions are not
+supported. Should supporting them ever matter, `patch_raw/2` and the
+`:decoder` option already isolate every JSON touchpoint, so a
+compatibility fallback could be added without an API redesign.
+
 ### 16.2 Test dependencies
 
 Expected test-only dependencies include:
 
 - `stream_data` for property testing;
 - `server_sent_events` as an independent field-level SSE decoder;
-- a JSON library for conformance fixtures;
 - Plug and one or more server adapters for integration projects; and
 - a browser tool only in the browser-test job.
+
+No third-party JSON library is needed: production code uses the
+standard-library `JSON`, and the conformance adapter's deterministic
+lexicographic encoding (§11.3) is implemented in test support.
 
 Test dependencies MUST be marked `only: :test` and `runtime: false` where appropriate.
 
@@ -1395,7 +1556,9 @@ Public documentation MUST include:
 - the requirement to read signals before starting SSE;
 - the single-writer stream contract;
 - JSON and HTML trust boundaries;
-- the pinned Datastar compatibility version; and
+- the pinned Datastar compatibility version;
+- the minimum supported Elixir version and why (standard-library `JSON`);
+- the deliberate deferral of `:telemetry` (§10.6); and
 - how to run the official conformance suite.
 
 Examples MUST not imply that constructors write to a connection if they only return events.
@@ -1407,7 +1570,10 @@ Examples MUST not imply that constructors write to a connection if they only ret
 The stable low-level contract consists of:
 
 - `Datastar.SSE.event()`;
+- the `Datastar` facade delegations;
+- `Datastar.Signals.Reader`'s functions and error categories;
 - pure constructor names, arguments, and option semantics;
+- the minimum supported Elixir version (§16.1);
 - exact canonical event-map output;
 - error classes and stable error categories; and
 - adapter return shapes.
@@ -1436,14 +1602,14 @@ The project SHOULD keep a small machine-readable record of:
 
 Possible future features include:
 
-- JSON-term patch helpers;
-- nested signal-removal helpers;
+- nested signal-removal helpers (dot paths);
 - redirect and console helpers;
 - Phoenix-safe HTML conversion;
 - component rendering;
 - connection writer processes;
 - PubSub integration;
-- heartbeat scheduling; and
+- heartbeat scheduling;
+- `:telemetry` instrumentation of the adapter layer (§10.6); and
 - higher-level page or event-dispatch frameworks.
 
 They MUST build on the core constructors and transport boundaries rather than adding parallel wire implementations.
@@ -1477,14 +1643,18 @@ Coverage percentage is not the main target. The project SHOULD maintain a requir
 
 - [ ] `Datastar.Elements.patch/2` implements every v1.0.4 mode, namespace, and option.
 - [ ] `Datastar.Elements.remove/2` is a strict convenience constructor.
-- [ ] `Datastar.Signals.patch/2` implements raw JSON signal patches and `onlyIfMissing`.
+- [ ] `Datastar.Signals.patch/2` implements map signal patches via the standard-library `JSON` and `onlyIfMissing`.
+- [ ] `Datastar.Signals.patch_raw/2` implements raw JSON signal patches.
 - [ ] `Datastar.Script.execute/2` expands through element patching with safe attribute handling.
+- [ ] The `Datastar` facade delegates to every constructor without added behavior.
+- [ ] `Datastar.Signals.Reader` implements the pure source and decode logic.
 - [ ] Every constructor returns `Datastar.SSE.event()` and never preformats SSE.
 - [ ] Defaults are omitted canonically.
+- [ ] Trailing whitespace-only element lines are trimmed; interior lines are preserved.
 - [ ] Unknown and duplicate options fail explicitly.
 - [ ] Single-line dataline values reject injection characters.
 - [ ] Multiline values are normalized and re-prefixed correctly.
-- [ ] Production core has zero runtime dependencies.
+- [ ] Production core has zero runtime dependencies and states the Elixir ≥ 1.18 floor.
 
 ### 20.2 Core tests
 
@@ -1503,6 +1673,7 @@ Coverage percentage is not the main target. The project SHOULD maintain a requir
 - [ ] Events are encoded only by `Datastar.SSE` and written as one logical chunk per event.
 - [ ] Transport errors remain observable.
 - [ ] The single-writer contract is documented and tested.
+- [ ] The Plug signal reader delegates decoding to `Datastar.Signals.Reader`.
 - [ ] GET/DELETE query signals and all other body methods work.
 - [ ] Body reads preserve the updated connection and enforce a total size limit.
 - [ ] Missing, empty, malformed, oversized, and non-object input have specified results.
@@ -1534,7 +1705,88 @@ When this specification's definition of done is satisfied, the project may claim
 
 It MUST NOT claim that the official suite alone proves complete Datastar, HTTP, browser, or security compliance.
 
-## 22. References
+## 22. Development stages
+
+The verification program in §11–§14 and §19 is comprehensive by design, but
+it MUST NOT block shipping the core. Development proceeds in ordered stages;
+each stage ends with `mix ci` green and a releasable state. Later-stage
+infrastructure is not a prerequisite for earlier releases, and the package
+version stays in the v0.0.x range until Stage 2 is complete.
+
+### Stage 1 — Pure core
+
+- `Datastar.Elements`, `Datastar.Signals`, `Datastar.Signals.Reader`,
+  `Datastar.Script`, and the `Datastar` facade (`Datastar.SSE` already
+  exists).
+- Exact constructor tests (§12.1–§12.4), StreamData properties
+  (§12.5–§12.11), and named security regressions (§15).
+- No Plug, no HTTP, no conformance server.
+
+### Stage 2 — Plug adapter and official conformance
+
+- `Datastar.Plug` transport and `Datastar.Plug.Signals`.
+- Plug unit and integration tests (§13.1, §13.2).
+- The `/test` conformance server (§11) and the pinned official runner in CI
+  (§11.5).
+
+### Stage 3 — Real-server lifecycle
+
+- At least one supported real server adapter in integration tests (§13.1).
+- Disconnect, stream-completion, and process-leak tests (§13.3).
+
+### Stage 4 — Browser suite and drift watch
+
+- Browser smoke tests against the pinned Datastar client (§14).
+- The optional non-blocking moving-upstream drift job (§11.5).
+
+## 23. Specification changelog
+
+### 0.2 — 2026-09-26
+
+Revised after a critical review of specification 0.1, before implementation
+started. The changes and their rationale:
+
+- **Signals rebased on the standard-library `JSON` module.** Specification
+  0.1 assumed JSON handling required a third-party dependency, so the core
+  accepted only pre-encoded JSON binaries and could not validate them. Elixir
+  has shipped a built-in `JSON` module since 1.18, so "zero dependencies" and
+  "accepts Elixir maps" are no longer in tension. `Datastar.Signals.patch/2`
+  now takes a map and guarantees valid JSON by construction; the raw-binary
+  API remains as `patch_raw/2`. The minimum supported Elixir version is
+  pinned at 1.18 and becomes part of the public contract (§7, §16.1). A
+  caller-supplied decoder remains supported via the reader's `:decoder`
+  option, so the floor could be lowered later without an API redesign.
+- **Trailing element lines are trimmed.** 0.1 preserved trailing empty
+  logical lines, so every template render (which ends with a newline) would
+  have emitted a useless empty `elements` dataline. Trailing empty or
+  whitespace-only lines are now removed during normalization; interior lines
+  are untouched (§6.4).
+- **The `Datastar` facade is specified and mandatory from the first
+  release.** It mirrors the official SDKs' function names
+  (`patch_elements`, `patch_signals`, `execute_script`, …) and is part of
+  the stable contract (§4.6, §18.1).
+- **Incoming-signal logic split into a pure core.** The method-to-source
+  decision, JSON decoding, and object validation moved from the Plug adapter
+  into the new framework-independent `Datastar.Signals.Reader`, so future
+  non-Plug transports reuse one tested decision table (§4.4, §9.1). The
+  `:missing_decoder` error disappeared because the decoder now has a
+  standard-library default.
+- **Telemetry explicitly deferred.** No `:telemetry` in v0.x; recorded as a
+  deliberate scope decision with its future home in the adapter layer
+  (§10.6).
+- **Development stages added** (§22) so the extensive verification program
+  has an explicit shipping order instead of acting as one monolithic
+  definition of done.
+- **Housekeeping.** The package version was set to v0.0.1 to signal that
+  core functionality is not yet implemented; the conformance adapter's
+  deterministic JSON encoding is now specified as test-support code rather
+  than a test-only JSON dependency (§11.3, §16.2).
+
+### 0.1 — 2026-09-25
+
+Initial draft.
+
+## 24. References
 
 - [Datastar v1.0.4 release](https://github.com/starfederation/datastar/releases/tag/v1.0.4)
 - [Datastar SDK ADR, v1.0.4](https://github.com/starfederation/datastar/blob/v1.0.4/sdk/ADR.md)
