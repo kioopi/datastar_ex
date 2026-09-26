@@ -111,7 +111,7 @@ defmodule Datastar.ElementsTest do
 
     # Review Focus 1: only CR, LF, CRLF are line breaks.
     test "Unicode separators U+2028, U+0085, U+000B are content, not line breaks" do
-      for sep <- [" ", "\u0085", "\u000B"] do
+      for sep <- ["\u2028", "\u0085", "\u000B"] do
         assert Elements.patch("a#{sep}b").data == "elements a#{sep}b"
       end
     end
