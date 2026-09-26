@@ -62,4 +62,54 @@ defmodule Datastar.Generators do
     |> fixed_list()
     |> map(&List.flatten/1)
   end
+
+  @doc "JSON-native objects per spec §7.1, three levels deep at most."
+  def json_object, do: json_object(2)
+
+  defp json_object(depth) do
+    map_of(json_key(), json_value(depth), max_length: 4)
+    |> filter(&unique_normalized_keys?/1)
+  end
+
+  defp json_key do
+    one_of([
+      string(:utf8, min_length: 1, max_length: 8),
+      map(string(:alphanumeric, min_length: 1, max_length: 8), &String.to_atom/1),
+      integer(0..99)
+    ])
+  end
+
+  defp json_value(0), do: json_scalar()
+
+  defp json_value(depth) do
+    frequency([
+      {6, json_scalar()},
+      {2, list_of(json_value(depth - 1), max_length: 3)},
+      {2, json_object(depth - 1)}
+    ])
+  end
+
+  defp json_scalar do
+    one_of([
+      string(:utf8, max_length: 10),
+      integer(),
+      float(min: -1.0e6, max: 1.0e6),
+      boolean(),
+      constant(nil)
+    ])
+  end
+
+  defp unique_normalized_keys?(map) do
+    names = Enum.map(Map.keys(map), &normalize_key/1)
+    length(names) == length(Enum.uniq(names)) and Enum.all?(Map.values(map), &values_unique?/1)
+  end
+
+  defp values_unique?(%{} = map), do: unique_normalized_keys?(map)
+  defp values_unique?(list) when is_list(list), do: Enum.all?(list, &values_unique?/1)
+  defp values_unique?(_scalar), do: true
+
+  @doc "Normalizes a JSON-native map/list key or scalar to its JSON member name."
+  def normalize_key(k) when is_binary(k), do: k
+  def normalize_key(k) when is_atom(k), do: Atom.to_string(k)
+  def normalize_key(k) when is_integer(k), do: Integer.to_string(k)
 end
