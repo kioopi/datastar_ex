@@ -245,4 +245,19 @@ defmodule Datastar.ElementsTest do
       end
     end
   end
+
+  describe "security regressions (§15.1)" do
+    test "a selector cannot forge a mode dataline" do
+      assert_raise ArgumentError, fn ->
+        Elements.patch("<i>x</i>", selector: "#a\nmode remove")
+      end
+    end
+
+    test "element content cannot forge an SSE field: every line is re-prefixed" do
+      event = Elements.patch("<i>x</i>\nevent: hacked\ndata: forged")
+
+      assert event.data ==
+               "elements <i>x</i>\nelements event: hacked\nelements data: forged"
+    end
+  end
 end
