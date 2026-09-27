@@ -99,6 +99,27 @@ defmodule Datastar.Conformance.RouterTest do
     assert Plug.Conn.get_resp_header(conn, "content-type") != ["text/event-stream"]
   end
 
+  # Regression: the dispatcher-error branch must use the post-body-read
+  # conn, not the original argument (Elixir `with`'s `else` clauses do not
+  # see variables bound in the `with` clause patterns).
+  test "POST /test with a valid-JSON but invalid fixture 400s on the drained conn" do
+    payload = JSON.encode!(%{"events" => [%{"type" => "mergeFragments"}]})
+
+    conn =
+      :post
+      |> conn("/test", payload)
+      |> request()
+
+    assert conn.status == 400
+    assert conn.state == :sent
+    refute conn.resp_body =~ "event:"
+
+    # The body was already consumed by Signals.read_signals/1 before the
+    # dispatcher error was raised, so re-reading it comes back empty
+    # rather than replaying the original payload.
+    assert Plug.Conn.read_body(conn) == {:ok, "", conn}
+  end
+
   test "the server module boots Bandit and serves /healthz" do
     {:ok, pid} = Datastar.Conformance.Server.start(0)
     {:ok, {_ip, port}} = ThousandIsland.listener_info(pid)

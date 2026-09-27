@@ -49,7 +49,7 @@ defmodule Datastar.Plug.SignalsTest do
     end
 
     test "non-object query JSON is rejected" do
-      for raw <- ["[1,2]", ~s("s"), "42", "null"] do
+      for raw <- ["[1,2]", ~s("s"), "42", "null", "true", "false"] do
         conn = conn(:get, "/?datastar=" <> URI.encode_www_form(raw))
         assert {:error, :not_an_object, _} = Signals.read_signals(conn)
       end
@@ -97,6 +97,7 @@ defmodule Datastar.Plug.SignalsTest do
       assert {:ok, %{}, _} = Signals.read_signals(conn(:post, "/", ""))
       assert {:error, :invalid_json, _} = Signals.read_signals(conn(:post, "/", "{nope"))
       assert {:error, :not_an_object, _} = Signals.read_signals(conn(:post, "/", "[1]"))
+      assert {:error, :not_an_object, _} = Signals.read_signals(conn(:post, "/", "true"))
     end
 
     test "adapter read errors are wrapped as {:read_body, reason}" do

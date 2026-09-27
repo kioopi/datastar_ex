@@ -32,12 +32,15 @@ defmodule Datastar.Conformance.Router do
   end
 
   defp handle(conn) do
-    with {:ok, signals, conn} <- Datastar.Plug.Signals.read_signals(conn),
-         {:ok, events} <- Dispatcher.events(signals) do
-      stream(conn, events)
-    else
-      {:error, reason, conn} -> send_resp(conn, 400, "invalid signals: #{inspect(reason)}")
-      {:error, message} -> send_resp(conn, 400, message)
+    case Datastar.Plug.Signals.read_signals(conn) do
+      {:ok, signals, conn} ->
+        case Dispatcher.events(signals) do
+          {:ok, events} -> stream(conn, events)
+          {:error, message} -> send_resp(conn, 400, message)
+        end
+
+      {:error, reason, conn} ->
+        send_resp(conn, 400, "invalid signals: #{inspect(reason)}")
     end
   end
 

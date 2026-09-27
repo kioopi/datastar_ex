@@ -28,6 +28,16 @@ defmodule Datastar.PlugTest do
       assert get_resp_header(http2, "connection") == []
     end
 
+    test "a pre-set content-length header is removed (spec §10.2)" do
+      conn =
+        :get
+        |> conn("/stream")
+        |> Plug.Conn.put_resp_header("content-length", "5")
+        |> Datastar.Plug.start()
+
+      assert get_resp_header(conn, "content-length") == []
+    end
+
     test "custom status is honored" do
       assert (:get |> conn("/stream") |> Datastar.Plug.start(status: 203)).status == 203
     end
@@ -62,6 +72,9 @@ defmodule Datastar.PlugTest do
       e1 = Datastar.patch_elements("<i>1</i>")
       e2 = Datastar.patch_signals(%{n: 2})
 
+      # Accumulating every chunk into conn.resp_body is a Plug.Test
+      # adapter detail for assertions here, not part of chunk/2's public
+      # contract (a real adapter streams chunks; it does not buffer them).
       conn = :get |> conn("/stream") |> Datastar.Plug.start()
       {:ok, conn} = Datastar.Plug.send_event(conn, e1)
       {:ok, conn} = Datastar.Plug.send_event(conn, e2)

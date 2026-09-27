@@ -8,5 +8,6 @@ git-cliff = "2"
 postinstall = "mix deps.get"
 
 [task_config]
-# File tasks live in scripts/ (`mise run release`, `mise run test:release`).
+# File tasks live in scripts/ (`mise run release`, `mise run test:release`,
+# `mise run conformance`).
 includes = ["scripts"]

@@ -155,6 +155,15 @@ defmodule Datastar.Conformance.DispatcherTest do
     assert message =~ "signals"
   end
 
+  test "patchSignals with a non-object signals value is an error mentioning signals" do
+    assert {:error, message} =
+             Dispatcher.events(%{
+               "events" => [%{"type" => "patchSignals", "signals" => [1, 2]}]
+             })
+
+    assert message =~ "signals"
+  end
+
   test "explicit false booleans pass through like their defaulted absence" do
     assert Dispatcher.events(%{
              "events" => [

@@ -65,6 +65,7 @@ if Code.ensure_loaded?(Plug) do
       conn
       |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
       |> Plug.Conn.put_resp_header("cache-control", "no-cache")
+      |> Plug.Conn.delete_resp_header("content-length")
       |> maybe_keep_alive()
       |> Plug.Conn.send_chunked(Keyword.get(opts, :status, 200))
     end

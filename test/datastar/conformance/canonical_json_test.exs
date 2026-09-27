@@ -32,8 +32,11 @@ defmodule Datastar.Conformance.CanonicalJSONTest do
       shuffled = decoded_shape |> Enum.shuffle() |> Map.new()
       assert CanonicalJSON.encode(shuffled) == canonical
       assert canonical |> JSON.decode!() |> CanonicalJSON.encode() == canonical
-      assert CanonicalJSON.encode(%{"a" => 1, "b" => [1, 2]}) == ~s({"a":1,"b":[1,2]})
     end
+  end
+
+  test "output has no whitespace around separators" do
+    assert CanonicalJSON.encode(%{"a" => 1, "b" => [1, 2]}) == ~s({"a":1,"b":[1,2]})
   end
 
   test "invalid input raises" do

@@ -10,6 +10,7 @@ defmodule Datastar.Conformance.CanonicalJSON do
   implementation, and not part of the public API.
   """
 
+  @doc "Encodes decoded-JSON `term` as compact JSON with sorted object keys."
   @spec encode(term()) :: String.t()
   def encode(object) when is_map(object) and not is_struct(object) do
     inner =

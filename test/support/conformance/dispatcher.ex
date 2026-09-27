@@ -71,7 +71,13 @@ defmodule Datastar.Conformance.Dispatcher do
   defp build!(_desc), do: raise(ArgumentError, "event description missing a type")
 
   defp canonical_signals!(nil), do: raise(ArgumentError, "patchSignals requires signals")
-  defp canonical_signals!(signals), do: Datastar.Conformance.CanonicalJSON.encode(signals)
+
+  defp canonical_signals!(signals) when is_map(signals),
+    do: Datastar.Conformance.CanonicalJSON.encode(signals)
+
+  defp canonical_signals!(signals) do
+    raise ArgumentError, "signals must be an object, got: #{inspect(signals, limit: 5)}"
+  end
 
   defp put_shared(opts, desc) do
     opts
