@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Run the browser smoke tests against the pinned Datastar client (requires Chrome)"
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+command -v "${BROWSER_BIN:-google-chrome-stable}" >/dev/null 2>&1 ||
+  { echo "error: Chrome required (set BROWSER_BIN to override)" >&2; exit 1; }
+MIX_ENV=test mix test --only browser
