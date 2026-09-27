@@ -79,16 +79,25 @@ release "$next" --dry-run
 check "refuses to release a change without a description" test "$status" -ne 0
 jj describe -r main -m "test: add a described change" >/dev/null 2>&1
 
+# Hashed rather than asserted absent/present, so this also covers a repo
+# that has never cut a release and so has no CHANGELOG.md yet.
+file_hash() { [[ -f "$1" ]] && sha256sum <"$1" || echo "absent"; }
+
 echo "Dry run"
 op_before=$(jj op log -n1 --no-graph -T 'id')
-changelog_before=$(sha256sum <CHANGELOG.md)
+changelog_before=$(file_hash CHANGELOG.md)
+conformance_md_before=$(file_hash docs/conformance.md)
+conformance_json_before=$(file_hash docs/conformance.json)
 release "$next" --dry-run
 check "succeeds" test "$status" -eq 0
 check "prints the new changelog section" grep -qF "## [$next]" <<<"$out"
 check "prints the commits being released" grep -q "test: add a described change" <<<"$out"
 check "leaves mix.exs alone" test "$(mix_version)" = "$current"
 check "creates no tag" test -z "$(jj tag list "$tag" 2>/dev/null)"
-check "leaves CHANGELOG.md alone" test "$(sha256sum <CHANGELOG.md)" = "$changelog_before"
+check "leaves CHANGELOG.md alone" test "$(file_hash CHANGELOG.md)" = "$changelog_before"
+check "does not regenerate the conformance record" \
+  test "$(file_hash docs/conformance.md)/$(file_hash docs/conformance.json)" = \
+  "$conformance_md_before/$conformance_json_before"
 check "records no jj operation" test "$(jj op log -n1 --no-graph -T 'id')" = "$op_before"
 check "pushes nothing" test -z "$(git --git-dir="$remote" show-ref)"
 

@@ -118,6 +118,9 @@ Describe them with 'jj describe -r <change>'."
   RUST_LOG=warn git cliff --tag "$tag" -o CHANGELOG.md
   sed -n '/^## /,$p' CHANGELOG.md | awk '/^## / && n++ { exit } { print }'
 
+  step "Regenerating the conformance record"
+  bash scripts/conformance-report || die "the official conformance suite must pass to release"
+
   step "Running mix ci"
   mix ci
 
