@@ -132,4 +132,44 @@ defmodule Datastar.Conformance.DispatcherTest do
                ]
              })
   end
+
+  test "malformed primary content fields become errors, not crashes" do
+    assert {:error, _} =
+             Dispatcher.events(%{
+               "events" => [%{"type" => "patchElements", "elements" => 123}]
+             })
+
+    assert {:error, _} =
+             Dispatcher.events(%{
+               "events" => [%{"type" => "executeScript", "script" => nil}]
+             })
+
+    assert {:error, _} =
+             Dispatcher.events(%{
+               "events" => [%{"type" => "patchSignals", "signals-raw" => %{}}]
+             })
+  end
+
+  test "patchSignals with neither signals nor signals-raw is an error" do
+    assert {:error, message} = Dispatcher.events(%{"events" => [%{"type" => "patchSignals"}]})
+    assert message =~ "signals"
+  end
+
+  test "explicit false booleans pass through like their defaulted absence" do
+    assert Dispatcher.events(%{
+             "events" => [
+               %{
+                 "type" => "patchElements",
+                 "elements" => "<i>1</i>",
+                 "useViewTransition" => false
+               }
+             ]
+           }) == {:ok, [Datastar.Elements.patch("<i>1</i>")]}
+
+    assert Dispatcher.events(%{
+             "events" => [
+               %{"type" => "patchSignals", "signals" => %{"n" => 1}, "onlyIfMissing" => false}
+             ]
+           }) == {:ok, [Datastar.Signals.patch_raw(~s({"n":1}))]}
+  end
 end
