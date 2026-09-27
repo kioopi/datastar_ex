@@ -1822,7 +1822,7 @@ Coverage percentage is not the main target. The project SHOULD maintain a requir
 - [x] GET/DELETE query signals and all other body methods work.
 - [x] Body reads preserve the updated connection and enforce a total size limit.
 - [x] Missing, empty, malformed, oversized, and non-object input have specified results.
-- [ ] At least one real-server lifecycle test passes.
+- [x] At least one real-server lifecycle test passes.
 
 ### 20.4 Official conformance
 

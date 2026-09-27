@@ -56,6 +56,8 @@ writes safe — never share a started conn across processes.
 **Compression warning.** Compression middleware that buffers responses can
 delay event delivery; leave SSE responses uncompressed.
 
+Lifecycle behavior—including incremental delivery, disconnection handling, and cleanup—is integration-tested against Bandit.
+
 ## Conformance
 
 `mise run conformance` (or `scripts/conformance` directly) runs the pinned
