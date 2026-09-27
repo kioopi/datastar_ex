@@ -73,3 +73,25 @@ release.
 it is non-blocking, and exit 1 signals drift to investigate per the spec's
 drift procedure.
 
+## Browser smoke tests
+
+`mise run test:browser` runs a small, deliberately stable suite of five
+end-to-end tests against the pinned Datastar v1.0.4 client executing for
+real in headless Chrome (a local Bandit server serves each fixture page).
+They prove what the pure and official-suite tests cannot see directly —
+the real client's rendering and DOM effects for:
+
+* all eight element-patch modes (`outer`, `inner`, `remove`, `replace`,
+  `prepend`, `append`, `before`, `after`), including a patch that requests
+  `use_view_transition: true`
+* SVG and MathML namespaced element patches, verified via the live
+  element's `namespaceURI`
+* multiline HTML element patches and multiline (pretty-printed) raw
+  signal patches, plus two ordered element patches landing in order
+* `executeScript` with the default `auto_remove: true` and with
+  `auto_remove: false`
+
+They require Chrome (or `$BROWSER_BIN`) on `PATH` and are excluded from
+`mix ci` by design: the spec (§19) treats them as an additional check for
+the primary environment, not a portable CI gate.
+

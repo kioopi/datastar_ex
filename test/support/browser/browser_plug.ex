@@ -29,7 +29,7 @@ defmodule Datastar.TestSupport.BrowserPlug do
   %STAGE%
       </div>
       <script>
-        window.__probe = () => null; // cases override via their own markup/scripts
+        window.__probe ??= () => null; // cases override via their own markup/scripts
         window.__report = () => {
           requestAnimationFrame(() => requestAnimationFrame(() => {
             fetch('/report?case=%CASE%', {

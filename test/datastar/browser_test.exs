@@ -41,4 +41,104 @@ defmodule Datastar.BrowserTest do
     # than the removal we might have assumed.
     assert stage =~ ~r/<span id="label"[^>]*>here<\/span>/
   end
+
+  test "patch modes: outer (+view transition), inner, remove, replace, prepend, append, before, after" do
+    payload = run_case("modes")
+    stage = payload["stage"]
+
+    # Case events (defined in Browser.cases/0):
+    #   outer patch (use_view_transition: true) morphs #m-outer in place
+    refute stage =~ "outer-old"
+    assert stage =~ ~r/<div id="m-outer" class="after">outer-new<\/div>/
+
+    # inner patch replaces only #m-inner's children; the wrapper stays
+    assert stage =~ ~r/<div id="m-inner"><span>inner-new<\/span><\/div>/
+    refute stage =~ "inner-old"
+
+    # remove patch: the element is gone entirely
+    refute stage =~ "m-remove"
+
+    # replace patch: outerHTML swap
+    refute stage =~ "replace-old"
+    assert stage =~ ~r/<div id="m-replace" class="replaced">replace-new<\/div>/
+
+    # prepend: new <li> lands before the original one
+    {prepend_new, _} = :binary.match(stage, "prepended")
+    {prepend_orig, _} = :binary.match(stage, "orig-prepend")
+    assert prepend_new < prepend_orig
+
+    # append: new <li> lands after the original one
+    {append_new, _} = :binary.match(stage, "appended")
+    {append_orig, _} = :binary.match(stage, "orig-append")
+    assert append_new > append_orig
+
+    # before: new sibling lands ahead of the anchor
+    {before_new, _} = :binary.match(stage, "before-new")
+    {before_anchor, _} = :binary.match(stage, "anchor-before")
+    assert before_new < before_anchor
+
+    # after: new sibling lands behind the anchor
+    {after_new, _} = :binary.match(stage, "after-new")
+    {after_anchor, _} = :binary.match(stage, "anchor-after")
+    assert after_new > after_anchor
+  end
+
+  test "SVG and MathML namespaces are preserved by namespace-tagged patches" do
+    payload = run_case("namespaces")
+    probe = payload["probe"]
+
+    # Case events (defined in Browser.cases/0):
+    #   patch("<circle .../>", selector: "#svg-root", mode: :inner, namespace: :svg)
+    #   patch("<mi>x</mi>", selector: "#math-root", mode: :inner, namespace: :mathml)
+    # The case's __probe override reads back the live element's namespaceURI.
+    assert probe["circleNS"] == "http://www.w3.org/2000/svg"
+    assert probe["miNS"] == "http://www.w3.org/1998/Math/MathML"
+  end
+
+  test "multiline elements, multiline raw signals, and two ordered appends" do
+    payload = run_case("multiline")
+    stage = payload["stage"]
+
+    # Case events (defined in Browser.cases/0):
+    #   outer patch with an embedded-newline <div> (template-shaped)
+    #   patch_raw with pretty-printed (multiline) JSON
+    #   two append patches, "first" then "second", to the same list
+    assert stage =~ ~r/<p>line one<\/p>\s*<p>line two<\/p>/
+    assert stage =~ ~r/<span id="ml-sig"[^>]*>multiline-signal<\/span>/
+
+    {first_pos, _} = :binary.match(stage, "first")
+    {second_pos, _} = :binary.match(stage, "second")
+    assert first_pos < second_pos
+  end
+
+  test "executeScript runs with auto_remove default and auto_remove: false" do
+    payload = run_case("scripts")
+    stage = payload["stage"]
+    probe = payload["probe"]
+
+    # Case events (defined in Browser.cases/0):
+    #   Script.execute(...)                      -> auto_remove: true (default)
+    #   Script.execute(..., auto_remove: false)  -> stays in the DOM
+    # Both scripts ran: their DOM markers are visible in #stage.
+    assert stage =~ ~r/<div id="script-out-1"[^>]*>ran-1<\/div>/
+    assert stage =~ ~r/<div id="script-out-2"[^>]*>ran-2<\/div>/
+
+    # The auto-remove marker attribute is gone from the reported stage —
+    # its <script> element already removed itself.
+    refute stage =~ "data-effect"
+
+    # `#stage` doesn't capture body-appended <script> elements at all (they
+    # live outside it), so the case's __probe counts them directly.
+    # Observed reality (headless Chrome, this client build): 2, not 1. The
+    # `auto_remove: false` script (never removed) plus the reporter's own
+    # `window.__report()` script (Script.execute(..., auto_remove: true),
+    # appended by BrowserPlug after every case's events) are both still
+    # present when __probe runs inside `window.__report()` itself — a
+    # script removes itself via its `data-effect="el.remove()"` effect,
+    # but that effect fires once the element is connected and processed,
+    # which for the currently-*executing* reporter script has not yet
+    # happened. The earlier `auto_remove: true` script (script-out-1) has
+    # already self-removed by this point, so it does not count.
+    assert probe["scripts"] == 2
+  end
 end
