@@ -23,3 +23,43 @@ Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_do
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at <https://hexdocs.pm/datastar_ex>.
 
+## Plug integration
+
+`Datastar.Plug` and `Datastar.Plug.Signals` send and read Datastar events over
+a `%Plug.Conn{}`. They compile only when the optional `:plug` dependency is
+present.
+
+Read incoming signals *before* starting the SSE response — once the response
+is chunked, malformed input can no longer receive a plain 400:
+
+```elixir
+with {:ok, signals, conn} <- Datastar.Plug.Signals.read_signals(conn) do
+  conn = Datastar.Plug.start(conn)
+
+  conn
+  |> Datastar.Plug.send_event!(Datastar.patch_elements("<li>New</li>", selector: "#feed", mode: :append))
+  |> Datastar.Plug.send_event!(Datastar.patch_signals(%{count: signals["count"] + 1}))
+else
+  {:error, reason, conn} -> Plug.Conn.send_resp(conn, 400, "invalid signals: #{inspect(reason)}")
+end
+```
+
+`send_event/2` and `send_event!/2` compose: each call encodes one event with
+`Datastar.SSE.encode/1` and writes it as one chunk, returning the updated
+conn so the next call can be piped straight after it.
+
+**Single-writer contract.** A stream has one logical writer: the request
+process owns the `%Plug.Conn{}` and serializes all writes. The conn struct is
+immutable, so holding a copy in another process does not make concurrent
+writes safe — never share a started conn across processes.
+
+**Compression warning.** Compression middleware that buffers responses can
+delay event delivery; leave SSE responses uncompressed.
+
+## Conformance
+
+`mise run conformance` (or `scripts/conformance` directly) runs the pinned
+official Datastar v1.0.4 SDK test suite against a local server built from this
+library's public boundaries. It requires the `go` toolchain on `PATH` and
+clones the upstream test suite into `.conformance/` on first run.
+

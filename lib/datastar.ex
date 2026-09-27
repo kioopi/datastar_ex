@@ -35,8 +35,14 @@ defmodule Datastar do
     * `Datastar.Signals` — constructs signal-patching events from maps or raw JSON
     * `Datastar.Signals.Reader` — reads Datastar signal streams from an HTTP response
     * `Datastar.Script` — constructs script-executing element patches
+    * `Datastar.Plug` — sends the constructed events as SSE over a
+      `%Plug.Conn{}` (compiles only when the optional `:plug` dependency
+      is present)
+    * `Datastar.Plug.Signals` — reads incoming Datastar signals from a
+      `%Plug.Conn{}` (same optional dependency)
 
-  HTTP integration and signal store subscriptions are not implemented yet.
+  Higher-level conveniences — signal store subscriptions, framework-specific
+  helpers — are not implemented yet.
 
   ## Compatibility
 

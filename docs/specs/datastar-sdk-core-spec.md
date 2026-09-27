@@ -1814,25 +1814,25 @@ Coverage percentage is not the main target. The project SHOULD maintain a requir
 
 ### 20.3 Plug boundary
 
-- [ ] Required headers are exact and protocol-aware.
-- [ ] Events are encoded only by `Datastar.SSE` and written as one logical chunk per event.
-- [ ] Transport errors remain observable.
-- [ ] The single-writer contract is documented and tested.
-- [ ] The Plug signal reader delegates decoding to `Datastar.Signals.Reader`.
-- [ ] GET/DELETE query signals and all other body methods work.
-- [ ] Body reads preserve the updated connection and enforce a total size limit.
-- [ ] Missing, empty, malformed, oversized, and non-object input have specified results.
+- [x] Required headers are exact and protocol-aware.
+- [x] Events are encoded only by `Datastar.SSE` and written as one logical chunk per event.
+- [x] Transport errors remain observable.
+- [x] The single-writer contract is documented and tested.
+- [x] The Plug signal reader delegates decoding to `Datastar.Signals.Reader`.
+- [x] GET/DELETE query signals and all other body methods work.
+- [x] Body reads preserve the updated connection and enforce a total size limit.
+- [x] Missing, empty, malformed, oversized, and non-object input have specified results.
 - [ ] At least one real-server lifecycle test passes.
 
 ### 20.4 Official conformance
 
-- [ ] A finite `/test` server uses public boundaries rather than private duplicate logic.
-- [ ] All v1.0.4 GET fixtures pass.
-- [ ] The v1.0.4 POST fixture passes.
-- [ ] `sendTwoEvents` proves event order.
+- [x] A finite `/test` server uses public boundaries rather than private duplicate logic.
+- [x] All v1.0.4 GET fixtures pass.
+- [x] The v1.0.4 POST fixture passes.
+- [x] `sendTwoEvents` proves event order.
 - [ ] The runner version is pinned in CI.
-- [ ] Logs and processes are handled reliably on failure.
-- [ ] Local tests cover every important behavior the official comparator ignores.
+- [x] Logs and processes are handled reliably on failure.
+- [x] Local tests cover every important behavior the official comparator ignores.
 
 ### 20.5 Documentation and release
 
