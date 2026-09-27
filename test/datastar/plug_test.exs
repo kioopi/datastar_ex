@@ -44,4 +44,77 @@ defmodule Datastar.PlugTest do
       end
     end
   end
+
+  describe "send_event/2 (§10.1, §10.3)" do
+    test "writes exactly Datastar.SSE.encode/1's bytes as one chunk" do
+      event = Datastar.patch_elements("<i>x</i>", event_id: "1")
+
+      {:ok, conn} =
+        :get
+        |> conn("/stream")
+        |> Datastar.Plug.start()
+        |> Datastar.Plug.send_event(event)
+
+      assert conn.resp_body == event |> Datastar.SSE.encode() |> IO.iodata_to_binary()
+    end
+
+    test "sequential events preserve order in the body" do
+      e1 = Datastar.patch_elements("<i>1</i>")
+      e2 = Datastar.patch_signals(%{n: 2})
+
+      conn = :get |> conn("/stream") |> Datastar.Plug.start()
+      {:ok, conn} = Datastar.Plug.send_event(conn, e1)
+      {:ok, conn} = Datastar.Plug.send_event(conn, e2)
+
+      expected =
+        IO.iodata_to_binary([Datastar.SSE.encode(e1), Datastar.SSE.encode(e2)])
+
+      assert conn.resp_body == expected
+    end
+
+    test "an invalid event raises ArgumentError before writing" do
+      conn = :get |> conn("/stream") |> Datastar.Plug.start()
+
+      assert_raise ArgumentError, fn -> Datastar.Plug.send_event(conn, %{}) end
+      assert_raise ArgumentError, fn -> Datastar.Plug.send_event(conn, %{data: "x", bogus: 1}) end
+    end
+
+    test "transport errors propagate as {:error, reason}" do
+      conn =
+        :get
+        |> conn("/stream")
+        |> Datastar.Plug.start()
+        |> Datastar.TestSupport.ClosedAdapter.wrap()
+
+      assert Datastar.Plug.send_event(conn, %{data: "x"}) == {:error, :closed}
+    end
+
+    test "send_event!/2 raises TransportError carrying the reason" do
+      conn =
+        :get
+        |> conn("/stream")
+        |> Datastar.Plug.start()
+        |> Datastar.TestSupport.ClosedAdapter.wrap()
+
+      err =
+        assert_raise Datastar.Plug.TransportError, ~r/:closed/, fn ->
+          Datastar.Plug.send_event!(conn, %{data: "x"})
+        end
+
+      assert err.reason == :closed
+    end
+
+    test "comments use encode_comment/1 and never terminate an event" do
+      conn = :get |> conn("/stream") |> Datastar.Plug.start()
+      {:ok, conn} = Datastar.Plug.send_comment(conn, "keep-alive")
+
+      assert conn.resp_body == ": keep-alive\n"
+    end
+
+    test "sending before start/2 fails predictably" do
+      assert_raise ArgumentError, fn ->
+        Datastar.Plug.send_event(conn(:get, "/"), %{data: "x"})
+      end
+    end
+  end
 end

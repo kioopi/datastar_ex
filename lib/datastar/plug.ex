@@ -83,5 +83,40 @@ if Code.ensure_loaded?(Plug) do
         conn
       end
     end
+
+    @doc """
+    Encodes one semantic event with `Datastar.SSE.encode/1` and writes it
+    as one chunk. Returns `{:error, reason}` on transport failure; raises
+    `ArgumentError` before writing if the event itself is invalid. Never
+    special-cases element, signal, or script events.
+    """
+    @spec send_event(Plug.Conn.t(), Datastar.SSE.event()) ::
+            {:ok, Plug.Conn.t()} | {:error, term()}
+    def send_event(conn, event) do
+      encoded = Datastar.SSE.encode(event)
+      Plug.Conn.chunk(conn, encoded)
+    end
+
+    @doc """
+    Like `send_event/2`, but raises `Datastar.Plug.TransportError`
+    (carrying the original reason) on transport failure.
+    """
+    @spec send_event!(Plug.Conn.t(), Datastar.SSE.event()) :: Plug.Conn.t()
+    def send_event!(conn, event) do
+      case send_event(conn, event) do
+        {:ok, conn} -> conn
+        {:error, reason} -> raise Datastar.Plug.TransportError, reason: reason
+      end
+    end
+
+    @doc """
+    Writes comment lines (`Datastar.SSE.encode_comment/1`) as one chunk —
+    a caller-driven heartbeat. Scheduling stays outside this module.
+    """
+    @spec send_comment(Plug.Conn.t(), String.t()) ::
+            {:ok, Plug.Conn.t()} | {:error, term()}
+    def send_comment(conn, comment) do
+      Plug.Conn.chunk(conn, Datastar.SSE.encode_comment(comment))
+    end
   end
 end
