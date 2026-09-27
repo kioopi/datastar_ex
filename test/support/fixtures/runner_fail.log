@@ -1,0 +1,4 @@
+--- FAIL: TestSSEGetEndpoints/patchElementsWithAllOptions (0.01s)
+    testdata.go:159: mismatch
+--- FAIL: TestSSEGetEndpoints/sendTwoEvents (0.00s)
+FAIL
