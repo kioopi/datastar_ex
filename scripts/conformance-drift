@@ -21,6 +21,12 @@ else
 fi
 DRIFT_COMMIT=$(git -C "$UPSTREAM" rev-parse --short HEAD)
 
+RUNNER_DIR="$UPSTREAM/sdk/tests"
+[ -d "$RUNNER_DIR/cmd/datastar-sdk-tests" ] || {
+  echo "error: upstream develop no longer contains sdk/tests/cmd/datastar-sdk-tests — the suite moved or was removed; adapt this script" >&2
+  exit 2
+}
+
 cd "$ROOT"
 MIX_ENV=test mix compile --warnings-as-errors
 
@@ -37,7 +43,7 @@ done
 [ -n "$ready" ] || { echo "error: server not ready; log:" >&2; cat "$SERVER_LOG" >&2; exit 2; }
 
 set +e
-(cd "$UPSTREAM/sdk/tests" && go run ./cmd/datastar-sdk-tests -server "http://127.0.0.1:${PORT}" -v) 2>&1 | tee "$RUNNER_LOG"
+(cd "$RUNNER_DIR" && go run ./cmd/datastar-sdk-tests -server "http://127.0.0.1:${PORT}" -v) 2>&1 | tee "$RUNNER_LOG"
 runner_status=${PIPESTATUS[0]}
 set -e
 
