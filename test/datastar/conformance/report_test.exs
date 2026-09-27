@@ -8,6 +8,7 @@ defmodule Datastar.Conformance.ReportTest do
   @checkout_skip if @checkout_present, do: false, else: "run `bash scripts/conformance` once"
 
   describe "cases/1" do
+    @tag :conformance_checkout
     @tag skip: @checkout_skip
     test "reads every golden case with input and expected output" do
       cases = Report.cases(@golden)
@@ -26,6 +27,14 @@ defmodule Datastar.Conformance.ReportTest do
 
     test "raises loudly on a missing or empty golden dir" do
       assert_raise RuntimeError, ~r/golden/, fn -> Report.cases("/nonexistent") end
+    end
+
+    @tag :tmp_dir
+    test "raises loudly when the golden dir exists but has no cases", %{tmp_dir: tmp} do
+      File.mkdir_p!(Path.join(tmp, "get"))
+      File.mkdir_p!(Path.join(tmp, "post"))
+
+      assert_raise RuntimeError, ~r/no golden cases/, fn -> Report.cases(tmp) end
     end
   end
 
@@ -56,6 +65,7 @@ defmodule Datastar.Conformance.ReportTest do
   end
 
   describe "generate/1" do
+    @tag :conformance_checkout
     @tag skip: @checkout_skip
     @tag :tmp_dir
     test "writes both artifacts with metadata and per-case rows", %{tmp_dir: tmp} do
