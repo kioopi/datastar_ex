@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+#MISE description="Run the pinned official suite and regenerate docs/conformance.{md,json}"
+set -euo pipefail
+
+TAG="v1.0.4"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CACHE="$ROOT/.conformance"
+GOLDEN="$CACHE/datastar-$TAG/sdk/tests/golden"
+
+cd "$ROOT"
+
+suite_status=0
+bash scripts/conformance || suite_status=$?
+
+[ -f "$CACHE/runner.log" ] || { echo "error: no runner log at $CACHE/runner.log" >&2; exit 2; }
+[ -d "$GOLDEN" ] || { echo "error: no golden fixtures at $GOLDEN" >&2; exit 2; }
+
+MIX_ENV=test mix run -e "
+  Datastar.Conformance.Report.generate(
+    golden_dir: ~s($GOLDEN),
+    runner_log: ~s($CACHE/runner.log),
+    exit_code: $suite_status,
+    out_md: ~s(docs/conformance.md),
+    out_json: ~s(docs/conformance.json),
+    tag: ~s($TAG)
+  )
+"
+
+echo
+echo "==> docs/conformance.md header:"
+sed -n '1,14p' docs/conformance.md
+echo "==> docs/conformance.json:"
+head -c 400 docs/conformance.json; echo
+
+exit "$suite_status"

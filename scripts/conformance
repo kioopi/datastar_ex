@@ -47,10 +47,15 @@ if [ -z "$ready" ]; then
   exit 1
 fi
 
-if ! (cd "$UPSTREAM/sdk/tests" && go run ./cmd/datastar-sdk-tests -server "http://127.0.0.1:${PORT}" -v); then
+RUNNER_LOG="$CACHE/runner.log"
+set +e
+(cd "$UPSTREAM/sdk/tests" && go run ./cmd/datastar-sdk-tests -server "http://127.0.0.1:${PORT}" -v) 2>&1 | tee "$RUNNER_LOG"
+runner_status=${PIPESTATUS[0]}
+set -e
+if [ "$runner_status" -ne 0 ]; then
   echo "--- conformance server log ---" >&2
   cat "$SERVER_LOG" >&2
-  exit 1
+  exit "$runner_status"
 fi
 
 echo "official Datastar ${TAG} conformance suite passed"
