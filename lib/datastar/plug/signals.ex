@@ -21,7 +21,11 @@ if Code.ensure_loaded?(Plug) do
     alias Datastar.Signals.Reader
 
     @default_max_length 1_000_000
-    @allowed_opts [:max_length, :read_length, :decoder]
+    @allowed_opts [
+      :decoder,
+      max_length: @default_max_length,
+      read_length: @default_max_length
+    ]
     @query_key "datastar"
 
     @typedoc "Stable error categories for incoming signal reading."
@@ -41,25 +45,14 @@ if Code.ensure_loaded?(Plug) do
     @spec read_signals(Plug.Conn.t(), keyword()) ::
             {:ok, map(), Plug.Conn.t()} | {:error, read_error(), Plug.Conn.t()}
     def read_signals(conn, opts \\ []) do
-      Options.validate_keys!(opts, @allowed_opts)
-      max_length = validate_length!(opts, :max_length, @default_max_length)
-      read_length = validate_length!(opts, :read_length, @default_max_length)
+      opts = Options.validate!(opts, @allowed_opts)
+      max_length = Options.fetch_pos_integer!(opts, :max_length)
+      read_length = Options.fetch_pos_integer!(opts, :read_length)
       decoder_opts = Keyword.take(opts, [:decoder])
 
       case Reader.source(conn.method) do
         :query -> read_query(conn, max_length, decoder_opts)
         :body -> read_body_signals(conn, max_length, read_length, decoder_opts)
-      end
-    end
-
-    defp validate_length!(opts, key, default) do
-      case Keyword.get(opts, key, default) do
-        length when is_integer(length) and length > 0 ->
-          length
-
-        other ->
-          raise ArgumentError,
-                "#{inspect(key)} must be a positive integer, got: #{inspect(other, limit: 5)}"
       end
     end
 

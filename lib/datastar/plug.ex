@@ -59,7 +59,7 @@ if Code.ensure_loaded?(Plug) do
     """
     @spec start(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
     def start(conn, opts \\ []) do
-      Options.validate_keys!(opts, [:status])
+      opts = Options.validate!(opts, status: 200)
       ensure_not_sent!(conn)
 
       conn
@@ -67,7 +67,7 @@ if Code.ensure_loaded?(Plug) do
       |> Plug.Conn.put_resp_header("cache-control", "no-cache")
       |> Plug.Conn.delete_resp_header("content-length")
       |> maybe_keep_alive()
-      |> Plug.Conn.send_chunked(Keyword.get(opts, :status, 200))
+      |> Plug.Conn.send_chunked(Keyword.fetch!(opts, :status))
     end
 
     defp ensure_not_sent!(%Plug.Conn{state: state}) when state in [:unset, :set], do: :ok

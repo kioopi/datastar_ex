@@ -22,7 +22,12 @@ defmodule Datastar.Script do
 
   alias Datastar.{Elements, Options}
 
-  @allowed_opts [:auto_remove, :attributes, :event_id, :retry_duration]
+  @allowed_opts [
+    :event_id,
+    :retry_duration,
+    attributes: %{},
+    auto_remove: true
+  ]
   @shared_opts [:event_id, :retry_duration]
   @reserved_attribute "data-effect"
   @auto_remove_value "el.remove()"
@@ -48,13 +53,13 @@ defmodule Datastar.Script do
   """
   @spec execute(String.t(), [execute_option()]) :: Datastar.SSE.event()
   def execute(script, opts \\ []) do
-    Options.validate_keys!(opts, @allowed_opts)
+    opts = Options.validate!(opts, @allowed_opts)
     validate_script!(script)
-    auto_remove? = validate_auto_remove!(opts)
+    auto_remove? = Options.fetch_boolean!(opts, :auto_remove)
 
     attributes =
       opts
-      |> Keyword.get(:attributes, %{})
+      |> Keyword.fetch!(:attributes)
       |> normalize_attributes!(auto_remove?)
       |> maybe_put_auto_remove(auto_remove?)
       |> Enum.sort_by(fn {name, _value} -> name end)
@@ -70,16 +75,6 @@ defmodule Datastar.Script do
     end
 
     :ok
-  end
-
-  defp validate_auto_remove!(opts) do
-    case Keyword.get(opts, :auto_remove, true) do
-      value when is_boolean(value) ->
-        value
-
-      other ->
-        raise ArgumentError, ":auto_remove must be a boolean, got: #{inspect(other, limit: 5)}"
-    end
   end
 
   defp normalize_attributes!(attributes, auto_remove?) do

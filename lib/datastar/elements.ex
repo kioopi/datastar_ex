@@ -26,14 +26,17 @@ defmodule Datastar.Elements do
   @event_type "datastar-patch-elements"
   @modes [:outer, :inner, :remove, :replace, :prepend, :append, :before, :after]
   @namespaces [:html, :svg, :mathml]
-  @allowed_opts [
-    :selector,
-    :mode,
-    :use_view_transition,
-    :view_transition_selector,
-    :namespace,
-    :event_id,
-    :retry_duration
+  @defaults [mode: :outer, use_view_transition: false, namespace: :html]
+  @allowed_opts [:selector, :view_transition_selector, :event_id, :retry_duration | @defaults]
+
+  # Option datalines in wire order (§6.3); an option equal to its Datastar
+  # default is omitted.
+  @dataline_names [
+    selector: "selector",
+    mode: "mode",
+    use_view_transition: "useViewTransition",
+    view_transition_selector: "viewTransitionSelector",
+    namespace: "namespace"
   ]
 
   @typedoc "Element patch mode. The Datastar default is `:outer`."
@@ -63,10 +66,9 @@ defmodule Datastar.Elements do
   """
   @spec patch(iodata() | nil, [patch_option()]) :: Datastar.SSE.event()
   def patch(elements, opts \\ []) do
-    Options.validate_keys!(opts, @allowed_opts)
-    validate_option_values!(opts)
+    opts = opts |> Options.validate!(@allowed_opts) |> validate_option_values!()
     lines = element_lines!(elements)
-    validate_presence!(lines, opts)
+    validate_presence!(opts, lines)
 
     datalines = option_datalines(opts) ++ Enum.map(lines, &("elements " <> &1))
 
@@ -94,7 +96,7 @@ defmodule Datastar.Elements do
     binary |> Dataline.split() |> Dataline.trim_trailing_blank()
   end
 
-  defp validate_presence!([], opts) do
+  defp validate_presence!(opts, []) do
     unless Keyword.get(opts, :mode) == :remove and Keyword.has_key?(opts, :selector) do
       raise ArgumentError,
             "elements are required unless mode: :remove with a non-empty selector"
@@ -103,25 +105,13 @@ defmodule Datastar.Elements do
     :ok
   end
 
-  defp validate_presence!(_lines, _opts), do: :ok
+  defp validate_presence!(_opts, _lines), do: :ok
 
   defp option_datalines(opts) do
-    selector = Keyword.get(opts, :selector)
-    mode = Keyword.get(opts, :mode, :outer)
-    view_transition? = Keyword.get(opts, :use_view_transition, false)
-    view_transition_selector = Keyword.get(opts, :view_transition_selector)
-    namespace = Keyword.get(opts, :namespace, :html)
-
-    List.flatten([
-      if(selector, do: ["selector " <> selector], else: []),
-      if(mode == :outer, do: [], else: ["mode " <> Atom.to_string(mode)]),
-      if(view_transition?, do: ["useViewTransition true"], else: []),
-      if(view_transition_selector,
-        do: ["viewTransitionSelector " <> view_transition_selector],
-        else: []
-      ),
-      if(namespace == :html, do: [], else: ["namespace " <> Atom.to_string(namespace)])
-    ])
+    for {key, name} <- @dataline_names,
+        value = Keyword.get(opts, key),
+        value not in [nil, @defaults[key]],
+        do: "#{name} #{value}"
   end
 
   defp validate_option_values!(opts) do
@@ -130,46 +120,43 @@ defmodule Datastar.Elements do
       {:view_transition_selector, value} -> validate_selector!(:view_transition_selector, value)
       {:mode, value} -> validate_enum!(:mode, value, @modes)
       {:namespace, value} -> validate_enum!(:namespace, value, @namespaces)
-      {:use_view_transition, value} -> validate_boolean!(:use_view_transition, value)
-      {_shared, _value} -> :ok
+      {_other, _value} -> :ok
     end)
 
-    if Keyword.has_key?(opts, :view_transition_selector) and
-         Keyword.get(opts, :use_view_transition) != true do
+    view_transition? = Options.fetch_boolean!(opts, :use_view_transition)
+
+    if Keyword.has_key?(opts, :view_transition_selector) and not view_transition? do
       raise ArgumentError, ":view_transition_selector requires use_view_transition: true"
     end
 
-    :ok
+    opts
   end
 
-  defp validate_selector!(name, value) do
-    unless is_binary(value) and String.valid?(value) do
-      raise ArgumentError, "#{inspect(name)} must be a valid UTF-8 binary"
-    end
+  defp validate_selector!(name, "") do
+    raise ArgumentError, "#{inspect(name)} must not be empty"
+  end
 
-    if value == "" do
-      raise ArgumentError, "#{inspect(name)} must not be empty"
-    end
+  defp validate_selector!(name, value) when is_binary(value) do
+    cond do
+      not String.valid?(value) ->
+        raise ArgumentError, "#{inspect(name)} must be a valid UTF-8 binary"
 
-    if String.contains?(value, ["\r", "\n", "\0"]) do
-      raise ArgumentError, "#{inspect(name)} must not contain CR, LF, or NULL"
-    end
+      String.contains?(value, ["\r", "\n", "\0"]) ->
+        raise ArgumentError, "#{inspect(name)} must not contain CR, LF, or NULL"
 
-    :ok
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_selector!(name, _value) do
+    raise ArgumentError, "#{inspect(name)} must be a valid UTF-8 binary"
   end
 
   defp validate_enum!(name, value, allowed) do
     unless value in allowed do
       raise ArgumentError,
             "#{inspect(name)} must be one of #{inspect(allowed)}, got: #{inspect(value, limit: 5)}"
-    end
-
-    :ok
-  end
-
-  defp validate_boolean!(name, value) do
-    unless is_boolean(value) do
-      raise ArgumentError, "#{inspect(name)} must be a boolean, got: #{inspect(value, limit: 5)}"
     end
 
     :ok

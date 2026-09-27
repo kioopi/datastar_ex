@@ -22,7 +22,7 @@ defmodule Datastar.Signals do
   alias Datastar.{Dataline, Options}
 
   @event_type "datastar-patch-signals"
-  @allowed_opts [:only_if_missing, :event_id, :retry_duration]
+  @allowed_opts [:event_id, :retry_duration, only_if_missing: false]
 
   @type patch_option ::
           {:only_if_missing, boolean()}
@@ -144,10 +144,19 @@ defmodule Datastar.Signals do
   JSON grammar itself is a documented caller precondition (§7.2).
   """
   @spec patch_raw(String.t(), [patch_option()]) :: Datastar.SSE.event()
-  def patch_raw(json, opts \\ []) do
-    Options.validate_keys!(opts, @allowed_opts)
-    only_if_missing? = validate_only_if_missing!(opts)
-    validate_json_binary!(json)
+  def patch_raw(json, opts \\ [])
+
+  def patch_raw("", _opts) do
+    raise ArgumentError, "signals JSON must not be empty"
+  end
+
+  def patch_raw(json, opts) when is_binary(json) do
+    unless String.valid?(json) do
+      raise ArgumentError, "signals JSON must be a valid UTF-8 binary"
+    end
+
+    opts = Options.validate!(opts, @allowed_opts)
+    only_if_missing? = Options.fetch_boolean!(opts, :only_if_missing)
 
     signal_lines = json |> Dataline.split() |> Enum.map(&("signals " <> &1))
     datalines = if only_if_missing?, do: ["onlyIfMissing true" | signal_lines], else: signal_lines
@@ -155,26 +164,7 @@ defmodule Datastar.Signals do
     Options.apply_shared!(%{event: @event_type, data: Enum.join(datalines, "\n")}, opts)
   end
 
-  defp validate_only_if_missing!(opts) do
-    case Keyword.get(opts, :only_if_missing, false) do
-      value when is_boolean(value) ->
-        value
-
-      other ->
-        raise ArgumentError,
-              ":only_if_missing must be a boolean, got: #{inspect(other, limit: 5)}"
-    end
-  end
-
-  defp validate_json_binary!(json) do
-    unless is_binary(json) and String.valid?(json) do
-      raise ArgumentError, "signals JSON must be a valid UTF-8 binary"
-    end
-
-    if json == "" do
-      raise ArgumentError, "signals JSON must not be empty"
-    end
-
-    :ok
+  def patch_raw(_json, _opts) do
+    raise ArgumentError, "signals JSON must be a valid UTF-8 binary"
   end
 end

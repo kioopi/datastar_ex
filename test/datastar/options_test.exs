@@ -4,26 +4,34 @@ defmodule Datastar.OptionsTest do
 
   alias Datastar.Options
 
-  describe "validate_keys!/2" do
+  describe "validate!/2" do
     test "accepts allowed unique keys" do
-      assert Options.validate_keys!([event_id: "1", retry_duration: 5], [
+      valid = [event_id: "1", retry_duration: 5]
+
+      assert Options.validate!(valid, [
                :event_id,
                :retry_duration
-             ]) == :ok
+             ]) == valid
 
-      assert Options.validate_keys!([], [:event_id]) == :ok
+      assert Options.validate!([], [:event_id]) == []
     end
 
-    test "raises on unknown option" do
-      assert_raise ArgumentError, ~r/unknown option :bogus/, fn ->
-        Options.validate_keys!([bogus: 1], [:event_id])
-      end
+    test "raises on unknown option without echoing option values" do
+      error =
+        assert_raise ArgumentError, fn ->
+          Options.validate!([event_id: "secret", bogus: 1], [:event_id])
+        end
+
+      assert Exception.message(error) == "unknown option :bogus"
     end
 
-    test "raises on duplicate option" do
-      assert_raise ArgumentError, ~r/duplicate option :event_id/, fn ->
-        Options.validate_keys!([event_id: "1", event_id: "2"], [:event_id])
-      end
+    test "raises on duplicate option without echoing option values" do
+      error =
+        assert_raise ArgumentError, fn ->
+          Options.validate!([event_id: "secret", event_id: "2"], [:event_id])
+        end
+
+      assert Exception.message(error) == "duplicate option :event_id"
     end
 
     test "raises on non-keyword input" do
@@ -31,11 +39,33 @@ defmodule Datastar.OptionsTest do
 
       assert_raise ArgumentError, ~r/keyword list/, fn ->
         # credo:disable-for-lines:1 Credo.Check.Refactor.Apply
-        apply(Options, :validate_keys!, [map, [:event_id]])
+        apply(Options, :validate!, [map, [:event_id]])
       end
 
       assert_raise ArgumentError, ~r/keyword list/, fn ->
-        Options.validate_keys!([{"event_id", "1"}], [:event_id])
+        Options.validate!([{"event_id", "1"}], [:event_id])
+      end
+    end
+  end
+
+  describe "fetch_boolean!/2" do
+    test "returns a boolean option and rejects anything else" do
+      assert Options.fetch_boolean!([auto_remove: false], :auto_remove) == false
+
+      assert_raise ArgumentError, ":auto_remove must be a boolean, got: \"yes\"", fn ->
+        Options.fetch_boolean!([auto_remove: "yes"], :auto_remove)
+      end
+    end
+  end
+
+  describe "fetch_pos_integer!/2" do
+    test "returns a positive integer option and rejects anything else" do
+      assert Options.fetch_pos_integer!([max_length: 10], :max_length) == 10
+
+      for bad <- [0, -1, 1.5, "10"] do
+        assert_raise ArgumentError, ~r/^:max_length must be a positive integer, got: /, fn ->
+          Options.fetch_pos_integer!([max_length: bad], :max_length)
+        end
       end
     end
   end

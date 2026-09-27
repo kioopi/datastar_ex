@@ -10,31 +10,99 @@ defmodule Datastar.Options do
 
   @doc """
   Validates that `opts` is a keyword list whose keys are all in `allowed`
-  and unique. Raises `ArgumentError` otherwise.
+  and unique, and returns it with defaults applied. Raises `ArgumentError`
+  otherwise.
+
+  `allowed` takes the same shape as `Keyword.validate!/2`: a bare atom
+  allows a key, a `{key, default}` pair allows it and supplies a default
+  when absent. Unlike `Keyword.validate!/2`, the error names only the
+  offending key — option values never reach the message.
 
   ## Examples
 
-      iex> Datastar.Options.validate_keys!([event_id: "1"], [:event_id])
-      :ok
+      iex> Datastar.Options.validate!([event_id: "1"], [:event_id])
+      [event_id: "1"]
+
+      iex> Datastar.Options.validate!([], [:event_id, status: 200])
+      [status: 200]
 
   """
-  @spec validate_keys!(keyword(), [atom()]) :: :ok
-  def validate_keys!(opts, allowed) do
+  @spec validate!(keyword(), [atom() | {atom(), term()}]) :: keyword()
+  def validate!(opts, allowed) do
     unless Keyword.keyword?(opts) do
       raise ArgumentError,
             "options must be a keyword list, got: #{inspect(opts, limit: 5)}"
     end
 
+    case Keyword.validate(opts, allowed) do
+      {:ok, opts} -> opts
+      {:error, _invalid} -> raise_invalid_key!(opts, allowed)
+    end
+  end
+
+  defp raise_invalid_key!(opts, allowed) do
+    allowed_keys =
+      Enum.map(allowed, fn
+        {key, _default} -> key
+        key -> key
+      end)
+
     keys = Keyword.keys(opts)
 
-    case Enum.find(keys, &(&1 not in allowed)) do
-      nil -> :ok
+    case Enum.find(keys, &(&1 not in allowed_keys)) do
+      nil -> raise ArgumentError, "duplicate option #{inspect(hd(keys -- Enum.uniq(keys)))}"
       key -> raise ArgumentError, "unknown option #{inspect(key)}"
     end
+  end
 
-    case keys -- Enum.uniq(keys) do
-      [] -> :ok
-      [key | _rest] -> raise ArgumentError, "duplicate option #{inspect(key)}"
+  @doc """
+  Fetches the boolean option `key`, raising `ArgumentError` if its value
+  is not a boolean.
+
+  `opts` must already have been through `validate!/2` with a default for
+  `key`; a missing key raises `KeyError`, which signals a missing default
+  rather than a caller error.
+
+  ## Examples
+
+      iex> Datastar.Options.fetch_boolean!([auto_remove: true], :auto_remove)
+      true
+
+  """
+  @spec fetch_boolean!(keyword(), atom()) :: boolean()
+  def fetch_boolean!(opts, key) do
+    case Keyword.fetch!(opts, key) do
+      value when is_boolean(value) ->
+        value
+
+      other ->
+        raise ArgumentError,
+              "#{inspect(key)} must be a boolean, got: #{inspect(other, limit: 5)}"
+    end
+  end
+
+  @doc """
+  Fetches the positive integer option `key`, raising `ArgumentError` if
+  its value is anything else.
+
+  Like `fetch_boolean!/2`, it expects `opts` to have been through
+  `validate!/2` with a default for `key`.
+
+  ## Examples
+
+      iex> Datastar.Options.fetch_pos_integer!([max_length: 1_000], :max_length)
+      1000
+
+  """
+  @spec fetch_pos_integer!(keyword(), atom()) :: pos_integer()
+  def fetch_pos_integer!(opts, key) do
+    case Keyword.fetch!(opts, key) do
+      value when is_integer(value) and value > 0 ->
+        value
+
+      other ->
+        raise ArgumentError,
+              "#{inspect(key)} must be a positive integer, got: #{inspect(other, limit: 5)}"
     end
   end
 

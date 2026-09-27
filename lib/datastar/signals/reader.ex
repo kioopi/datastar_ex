@@ -72,8 +72,8 @@ defmodule Datastar.Signals.Reader do
   def decode(json, opts \\ [])
 
   def decode(json, opts) when is_binary(json) do
-    Options.validate_keys!(opts, [:decoder])
-    decoder = Keyword.get(opts, :decoder, &JSON.decode/1)
+    opts = Options.validate!(opts, decoder: &JSON.decode/1)
+    decoder = Keyword.fetch!(opts, :decoder)
 
     unless is_function(decoder, 1) do
       raise ArgumentError,

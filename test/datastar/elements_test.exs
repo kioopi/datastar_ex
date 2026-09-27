@@ -266,6 +266,12 @@ defmodule Datastar.ElementsTest do
         Elements.patch("<i>x</i>", [{:mode, :append}, {:mode, :inner}])
       end
     end
+
+    test "options are validated before elements" do
+      assert_raise ArgumentError, ~r/unknown option :merge/, fn ->
+        Elements.patch(123, merge: true)
+      end
+    end
   end
 
   describe "security regressions (§15.1)" do
