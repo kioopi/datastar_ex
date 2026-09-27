@@ -16,7 +16,7 @@ defmodule Datastar.Conformance.Router do
   plug(:dispatch)
 
   get "/healthz" do
-    send_resp(conn, 200, "ok")
+    send_resp(conn, 200, System.get_env("CONFORMANCE_NONCE", "ok"))
   end
 
   get "/test" do

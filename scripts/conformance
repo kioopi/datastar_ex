@@ -8,11 +8,20 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CACHE="$ROOT/.conformance"
 UPSTREAM="$CACHE/datastar-$TAG"
 SERVER_LOG="$CACHE/server.log"
+RUNNER_LOG="$CACHE/runner.log"
 
 command -v go >/dev/null 2>&1 || { echo "error: the go toolchain is required on PATH" >&2; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "error: curl is required on PATH" >&2; exit 1; }
 
 mkdir -p "$CACHE"
+
+# I1(a): a false PASS is worse than a slow failure. If something is already
+# answering on $PORT, we would happily talk to it and report success without
+# ever having started our own server — refuse instead of guessing.
+if curl -fs --max-time 1 "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
+  echo "error: something is already serving on port ${PORT}; choose another PORT" >&2
+  exit 2
+fi
 
 if [ ! -d "$UPSTREAM" ]; then
   git clone --depth 1 --branch "$TAG" \
@@ -22,7 +31,16 @@ fi
 cd "$ROOT"
 MIX_ENV=test mix compile --warnings-as-errors
 
-MIX_ENV=test mix run --no-halt -e "Datastar.Conformance.Server.run(${PORT})" \
+# M1: remove any stale runner log from a previous run so a crash before the
+# runner ever starts can't be misattributed to a leftover file.
+rm -f "$RUNNER_LOG"
+
+# I1(b): a per-run nonce lets the readiness probe confirm it is talking to
+# *this* invocation's server, not some other process that happens to answer
+# 200 on /healthz.
+NONCE="conformance-$$-$RANDOM"
+
+MIX_ENV=test CONFORMANCE_NONCE="$NONCE" mix run --no-halt -e "Datastar.Conformance.Server.run(${PORT})" \
   >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true' EXIT INT TERM
@@ -34,7 +52,7 @@ for _ in $(seq 1 100); do
     cat "$SERVER_LOG" >&2
     exit 1
   fi
-  if [ "$(curl -fs --max-time 2 "http://127.0.0.1:${PORT}/healthz" 2>/dev/null)" = "ok" ]; then
+  if [ "$(curl -fs --max-time 2 "http://127.0.0.1:${PORT}/healthz" 2>/dev/null)" = "$NONCE" ]; then
     ready=1
     break
   fi
@@ -47,7 +65,6 @@ if [ -z "$ready" ]; then
   exit 1
 fi
 
-RUNNER_LOG="$CACHE/runner.log"
 set +e
 (cd "$UPSTREAM/sdk/tests" && go run ./cmd/datastar-sdk-tests -server "http://127.0.0.1:${PORT}" -v) 2>&1 | tee "$RUNNER_LOG"
 runner_status=${PIPESTATUS[0]}

@@ -25,6 +25,7 @@ defmodule Datastar.BrowserTest do
     #   patch_signals(%{count: 9}, only_if_missing: true) -> must NOT override
     #   patch_signals(%{label: "here"})                  -> second signal appears
     #   patch_signals(%{label: nil})                     -> removed
+    #   Elements.patch(<span id="label-after" data-text="$label">, append) -> I3 fresh binding
     assert stage =~ ~r/<span id="sig"[^>]*>2<\/span>/
     refute stage =~ ">9<"
 
@@ -40,6 +41,20 @@ defmodule Datastar.BrowserTest do
     # client for this binding shape — assert the observed reality rather
     # than the removal we might have assumed.
     assert stage =~ ~r/<span id="label"[^>]*>here<\/span>/
+
+    # I3: positive removal evidence. `#label-after` is inserted by an
+    # element patch that runs AFTER `label` was removed, so its
+    # `data-text="$label"` binding is processed fresh against the current
+    # signal store rather than reusing an effect registered while `label`
+    # still existed. Observed reality (headless Chrome, this client
+    # build): the freshly-bound element renders EMPTY, not "here" and not
+    # the literal string "undefined" — the `text` plugin's reactive effect
+    # evaluates `$label` against a store that no longer has the key at
+    # all, unlike `#label` above (bound before removal, stuck on the last
+    # value it ever saw). That contrast is the positive proof the null
+    # patch actually deleted the signal rather than merely failing to
+    # notify an existing binding.
+    assert stage =~ ~r/<span id="label-after" data-text="\$label"><\/span>/
   end
 
   test "patch modes: outer (+view transition), inner, remove, replace, prepend, append, before, after" do
@@ -123,22 +138,18 @@ defmodule Datastar.BrowserTest do
     assert stage =~ ~r/<div id="script-out-1"[^>]*>ran-1<\/div>/
     assert stage =~ ~r/<div id="script-out-2"[^>]*>ran-2<\/div>/
 
-    # The auto-remove marker attribute is gone from the reported stage —
-    # its <script> element already removed itself.
-    refute stage =~ "data-effect"
-
-    # `#stage` doesn't capture body-appended <script> elements at all (they
-    # live outside it), so the case's __probe counts them directly.
-    # Observed reality (headless Chrome, this client build): 2, not 1. The
-    # `auto_remove: false` script (never removed) plus the reporter's own
-    # `window.__report()` script (Script.execute(..., auto_remove: true),
-    # appended by BrowserPlug after every case's events) are both still
-    # present when __probe runs inside `window.__report()` itself — a
-    # script removes itself via its `data-effect="el.remove()"` effect,
-    # but that effect fires once the element is connected and processed,
-    # which for the currently-*executing* reporter script has not yet
-    # happened. The earlier `auto_remove: true` script (script-out-1) has
-    # already self-removed by this point, so it does not count.
-    assert probe["scripts"] == 2
+    # I2/M5: `#stage` doesn't capture body-appended <script> elements at all
+    # (they live outside it), so the case's __probe reads the surviving
+    # non-src body scripts' textContent directly, filtered to our markers.
+    # `__report()` runs two rAFs after the events stream finishes, and by
+    # that time the `auto_remove: true` script (script-out-1) has already
+    # run its `data-effect="el.remove()"` removal effect and is gone from
+    # the DOM; only the `auto_remove: false` script (script-out-2, never
+    # removed) remains. The old version of this probe counted raw
+    # `<script>` elements including the reporter's own still-executing
+    # `window.__report()` script and miscounted; reading identities instead
+    # of a count makes the assertion honest about what's actually left.
+    assert [remaining] = probe["scripts"]
+    assert remaining =~ "script-out-2"
   end
 end

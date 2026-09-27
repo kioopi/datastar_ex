@@ -6,8 +6,8 @@
 | | |
 | --- | --- |
 | Upstream tag | `v1.0.4` |
-| Library | `datastar_ex 0.0.1` at `87086ea` |
-| Generated | 2026-09-27T18:46:56Z |
+| Library | `datastar_ex 0.0.1` at `7f80aa0` |
+| Generated | 2026-09-27T21:08:50Z |
 | Toolchain | Elixir 1.20.4 / OTP 29 |
 | **Result** | **PASS (20/20)** |
 

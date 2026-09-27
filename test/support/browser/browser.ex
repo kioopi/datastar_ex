@@ -67,7 +67,15 @@ defmodule Datastar.TestSupport.Browser do
           # second signal appears
           Signals.patch(%{label: "here"}),
           # removed
-          Signals.patch(%{label: nil})
+          Signals.patch(%{label: nil}),
+          # I3: a binding created AFTER the removal reads the signal store
+          # fresh (rather than an already-registered effect that never got
+          # notified), giving positive evidence that the patch actually
+          # deleted `label` rather than merely failing to re-render it.
+          Elements.patch(~s(<span id="label-after" data-text="$label"></span>),
+            selector: "#stage",
+            mode: :append
+          )
         ]
       },
       "modes" => %{
@@ -169,7 +177,9 @@ defmodule Datastar.TestSupport.Browser do
         <div id="script-out-2"></div>
         <script>
           window.__probe = () => ({
-            scripts: document.querySelectorAll('body > script:not([src])').length
+            scripts: [...document.querySelectorAll('body > script:not([src])')]
+              .map((s) => s.textContent)
+              .filter((t) => t.includes('script-out'))
           });
         </script>
         """,

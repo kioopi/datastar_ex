@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 #MISE description="NON-BLOCKING: run the moving upstream (develop) suite to spot upcoming drift. Exit 0 none, 1 drift, 2 infra error"
 set -euo pipefail
+# M3: any unexpected failure while we're setting up infrastructure (git,
+# compile, server boot) must exit 2 (infra error), not fall through to the
+# runner's own 0/1 exit codes. This trap is cleared right before the
+# deliberate `set +e` runner block, where 0/1/2 are chosen explicitly below.
+trap 'exit 2' ERR
 
 PORT="${PORT:-7331}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,6 +18,13 @@ command -v go >/dev/null 2>&1 || { echo "error: go required" >&2; exit 2; }
 command -v curl >/dev/null 2>&1 || { echo "error: curl required" >&2; exit 2; }
 
 mkdir -p "$CACHE"
+
+# I1(a): refuse to talk to something already answering on $PORT — we would
+# otherwise silently probe a stranger's server and report "no drift".
+if curl -fs --max-time 1 "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
+  echo "error: something is already serving on port ${PORT}; choose another PORT" >&2
+  exit 2
+fi
 if [ -d "$UPSTREAM/.git" ]; then
   git -C "$UPSTREAM" fetch --depth 1 origin develop
   git -C "$UPSTREAM" reset --hard origin/develop
@@ -30,18 +42,24 @@ RUNNER_DIR="$UPSTREAM/sdk/tests"
 cd "$ROOT"
 MIX_ENV=test mix compile --warnings-as-errors
 
-MIX_ENV=test mix run --no-halt -e "Datastar.Conformance.Server.run(${PORT})" >"$SERVER_LOG" 2>&1 &
+# I1(b): per-run nonce so readiness confirms it's OUR server answering.
+NONCE="conformance-$$-$RANDOM"
+
+MIX_ENV=test CONFORMANCE_NONCE="$NONCE" mix run --no-halt -e "Datastar.Conformance.Server.run(${PORT})" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true' EXIT INT TERM
 
 ready=""
 for _ in $(seq 1 100); do
   kill -0 "$SERVER_PID" 2>/dev/null || { echo "error: server exited; log:" >&2; cat "$SERVER_LOG" >&2; exit 2; }
-  [ "$(curl -fs --max-time 2 "http://127.0.0.1:${PORT}/healthz" 2>/dev/null)" = "ok" ] && { ready=1; break; }
+  [ "$(curl -fs --max-time 2 "http://127.0.0.1:${PORT}/healthz" 2>/dev/null)" = "$NONCE" ] && { ready=1; break; }
   sleep 0.2
 done
 [ -n "$ready" ] || { echo "error: server not ready; log:" >&2; cat "$SERVER_LOG" >&2; exit 2; }
 
+# M3: from here on the runner's own exit code is authoritative (0/1/2 chosen
+# explicitly below) — stop letting `ERR` force a bare exit 2 over it.
+trap - ERR
 set +e
 (cd "$RUNNER_DIR" && go run ./cmd/datastar-sdk-tests -server "http://127.0.0.1:${PORT}" -v) 2>&1 | tee "$RUNNER_LOG"
 runner_status=${PIPESTATUS[0]}

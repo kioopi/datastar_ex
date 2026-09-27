@@ -4,6 +4,16 @@
 # Copies the repository (including deps/, _build/ and priv/plts/ so that
 # `mix ci` is fast), points `origin` at a local bare repository, and runs the
 # release script against it. Nothing touches the real repository or GitHub.
+#
+# This runs the whole release, including scripts/conformance-report (I4),
+# inside the sandbox copy — so this test:release needs the same things that
+# script does: the `go` toolchain on PATH, network access for the pinned
+# upstream clone (or an already-warm `.conformance/` cache copied in with the
+# rest of the tree), and a free port. The release script does not currently
+# thread a PORT override through to conformance-report, so it always binds
+# the hardcoded default (7331) inside the sandbox; export PORT before running
+# this script only once that plumbing exists, and until then make sure 7331
+# is free.
 set -euo pipefail
 
 root=$(jj root)
@@ -127,6 +137,11 @@ check "describes the release change" \
   test "$(jj log -r main --no-graph -T 'description.first_line()')" = "chore(release): $tag"
 check "tags main" test "$(jj log -r "tags(exact:\"$tag\")" --no-graph -T 'change_id')" = \
   "$(jj log -r main --no-graph -T 'change_id')"
+# I4: the conformance record regenerated onto the release commit must
+# actually carry the bumped version — regenerating against the wrong
+# checkout (or a stale cache) would otherwise pass silently.
+check "conformance.json on main carries the bumped version" \
+  grep -qF "\"library_version\":\"$next\"" <(jj file show -r main docs/conformance.json)
 check "pushes main" test "$(remote_has refs/heads/main)" = "$(jj log -r main --no-graph -T commit_id)"
 check "pushes the tag" remote_has "refs/tags/$tag"
 check "leaves an empty working copy on top of main" \

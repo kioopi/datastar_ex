@@ -71,7 +71,9 @@ release.
 
 `mise run conformance-drift` checks the moving upstream `develop` suite;
 it is non-blocking, and exit 1 signals drift to investigate per the spec's
-drift procedure.
+drift procedure. Exit 2 means an infrastructure failure (missing toolchain,
+an occupied port, the server never coming up) rather than drift — it is not
+informative about the suite and should be retried, not triaged as drift.
 
 ## Browser smoke tests
 
@@ -81,6 +83,11 @@ real in headless Chrome (a local Bandit server serves each fixture page).
 They prove what the pure and official-suite tests cannot see directly —
 the real client's rendering and DOM effects for:
 
+* signal patches: add, update, `onlyIfMissing` (must not override an
+  existing value), and removal — including positive evidence that a
+  null-patched signal is actually gone from the store (a freshly-bound
+  element reads it after removal), alongside the pinned finding that an
+  *already-bound* `data-text` element does not re-render on removal
 * all eight element-patch modes (`outer`, `inner`, `remove`, `replace`,
   `prepend`, `append`, `before`, `after`), including a patch that requests
   `use_view_transition: true`
