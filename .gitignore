@@ -59,3 +59,6 @@ CLAUDE.md
 
 # Dialyzer PLTs (cached in CI, see .github/workflows/ci.yml)
 /priv/plts/
+
+# Cached clone of the official Datastar SDK conformance suite
+/.conformance/
