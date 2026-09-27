@@ -1,7 +1,14 @@
 defmodule Datastar.PlugLifecycleTest do
   use ExUnit.Case, async: true
 
+  alias Datastar.TestSupport.LifecyclePlug
   alias Datastar.TestSupport.RawClient
+
+  defp start_lifecycle_server do
+    pid = start_supervised!({Bandit, plug: {LifecyclePlug, self()}, port: 0})
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(pid)
+    port
+  end
 
   defp start_conformance_server do
     {:ok, pid} = Datastar.Conformance.Server.start(0)
@@ -55,6 +62,73 @@ defmodule Datastar.PlugLifecycleTest do
 
       assert {:done, client} = RawClient.read_chunk(client)
       assert RawClient.recv_eof?(client, 5_000)
+    end
+  end
+
+  describe "lifecycle over Bandit (§13.3)" do
+    test "each event is delivered before the stream completes (immediate flush)" do
+      port = start_lifecycle_server()
+      {:ok, client} = RawClient.connect(port)
+      :ok = RawClient.get(client, "/stream")
+
+      assert_receive {:handler, handler}, 5_000
+      assert_receive :started, 5_000
+      {:ok, 200, headers, client} = RawClient.read_response_head(client)
+      assert headers["content-type"] == "text/event-stream"
+      assert headers["cache-control"] == "no-cache"
+      assert headers["connection"] == "keep-alive"
+
+      e1 = Datastar.patch_elements("<i>1</i>")
+      send(handler, {:event, e1})
+      assert_receive {:sent, {:ok, _conn}}, 5_000
+
+      # The event is on the wire NOW — before any further event exists.
+      {:ok, chunk, client} = RawClient.read_chunk(client)
+      assert chunk == IO.iodata_to_binary(Datastar.SSE.encode(e1))
+
+      e2 = Datastar.patch_signals(%{n: 2})
+      send(handler, {:event, e2})
+      assert_receive {:sent, {:ok, _conn}}, 5_000
+      {:ok, chunk, client} = RawClient.read_chunk(client)
+      assert chunk == IO.iodata_to_binary(Datastar.SSE.encode(e2))
+
+      send(handler, :finish)
+      assert_receive :finished, 5_000
+      assert {:done, client} = RawClient.read_chunk(client)
+      # Request was keep-alive (so the response-header assertion above is
+      # meaningful); the stream is complete when the zero-chunk arrives and
+      # nothing further follows — the socket itself may stay open for reuse.
+      assert {:error, :timeout} = RawClient.read_available(client, 300)
+    end
+
+    test "heartbeat comments arrive but dispatch no events" do
+      port = start_lifecycle_server()
+      {:ok, client} = RawClient.connect(port)
+      :ok = RawClient.get(client, "/stream")
+      assert_receive {:handler, handler}, 5_000
+      assert_receive :started, 5_000
+      {:ok, 200, _headers, client} = RawClient.read_response_head(client)
+
+      send(handler, {:comment, "keep-alive"})
+      assert_receive {:sent, {:ok, _conn}}, 5_000
+      {:ok, comment_chunk, client} = RawClient.read_chunk(client)
+      assert comment_chunk == ": keep-alive\n"
+
+      event = Datastar.patch_elements("<i>x</i>")
+      send(handler, {:event, event})
+      assert_receive {:sent, {:ok, _conn}}, 5_000
+      {:ok, event_chunk, client} = RawClient.read_chunk(client)
+
+      send(handler, :finish)
+      assert {:done, _client} = RawClient.read_chunk(client)
+
+      # Oracle: the full byte stream dispatches exactly one event.
+      decoded =
+        [comment_chunk <> event_chunk]
+        |> ServerSentEvents.decode_stream()
+        |> Enum.to_list()
+
+      assert decoded == [event]
     end
   end
 end
