@@ -11,18 +11,23 @@ defmodule Datastar.PlugLifecycleTest do
   end
 
   defp start_conformance_server do
-    {:ok, pid} = Datastar.Conformance.Server.start(0)
+    pid = start_supervised!({Bandit, plug: Datastar.Conformance.Router, port: 0})
     {:ok, {_ip, port}} = ThousandIsland.listener_info(pid)
-    # Bandit/ThousandIsland links its listener supervisor to the starting
-    # process and self-terminates with reason :shutdown when that process
-    # exits (observed on Bandit 1.12.5 / OTP 29) — by the time this on_exit
-    # runs (a separate process, after the test process has already died),
-    # the listener is already mid-shutdown. GenServer.stop's default reason
-    # (:normal) then races that in-flight :shutdown and crashes with a
-    # reason mismatch; passing :shutdown here matches the real teardown
-    # path instead of fighting it.
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid, :shutdown) end)
     port
+  end
+
+  # Sends events until the transport reports an error (bounded); returns it.
+  defp send_until_error(handler) do
+    Enum.reduce_while(1..10, :no_reply, fn _attempt, _acc ->
+      send(handler, {:event, Datastar.patch_elements("<i>post</i>")})
+
+      receive do
+        {:sent, {:error, reason}} -> {:halt, {:error, reason}}
+        {:sent, {:ok, _conn}} -> {:cont, :no_reply}
+      after
+        2_000 -> {:halt, :no_reply}
+      end
+    end)
   end
 
   describe "RawClient against a real Bandit server" do
@@ -149,24 +154,19 @@ defmodule Datastar.PlugLifecycleTest do
 
       # RST makes failure prompt, but TCP is asynchronous: allow a bounded
       # number of sends for the error to surface (Review Focus 1).
-      error =
-        Enum.reduce_while(1..10, nil, fn _attempt, _acc ->
-          send(handler, {:event, Datastar.patch_elements("<i>post</i>")})
-
-          receive do
-            {:sent, {:error, reason}} -> {:halt, {:error, reason}}
-            {:sent, {:ok, _conn}} -> {:cont, nil}
-          after
-            2_000 -> {:halt, :no_reply}
-          end
-        end)
-
-      assert {:error, reason} = error
-      assert reason in [:closed, :econnreset, :epipe] or is_binary(reason)
+      assert {:error, reason} = send_until_error(handler)
+      # Observed value is :closed on Bandit 1.x/Linux. Deliberately not
+      # accepting is_binary(reason): Bandit maps ANY non-transport exception
+      # to {:error, Exception.message(...)} (a binary), so that arm would
+      # also pass for an unrelated write-path crash.
+      assert reason in [:closed, :econnreset, :epipe]
 
       # The handler returns its conn and the connection process winds down.
       assert_receive {:DOWN, ^ref, :process, ^handler, down_reason}, 5_000
-      assert down_reason in [:normal, :shutdown] or match?({:shutdown, _}, down_reason)
+      # Observed value is {:shutdown, _} (not bare :normal/:shutdown) on
+      # this setup — :normal would also admit the handler's unrelated
+      # after-timeout path, so it is deliberately excluded.
+      assert match?({:shutdown, _}, down_reason)
     end
 
     test "after a disconnect the listener serves fresh requests and leaks no handler" do
@@ -180,18 +180,17 @@ defmodule Datastar.PlugLifecycleTest do
       {:ok, 200, _headers, client} = RawClient.read_response_head(client)
       ref = Process.monitor(first_handler)
       :ok = RawClient.abort(client)
-      send(first_handler, {:event, Datastar.patch_elements("<i>x</i>")})
-      assert_receive {:DOWN, ^ref, :process, ^first_handler, _reason}, 5_000
-      refute Process.alive?(first_handler)
 
-      # The above send may have reported {:sent, {:ok, _}} or
-      # {:sent, {:error, _}} depending on timing — only the eventual DOWN
-      # matters here; drain whichever arrived so it doesn't leak.
-      receive do
-        {:sent, _result} -> :ok
-      after
-        0 -> :ok
-      end
+      # A single send can land in the kernel buffer and report {:ok, _}
+      # (FIN/RST asynchrony), leaving the handler re-blocked in its receive
+      # loop with no DOWN ever arriving. Retry (bounded) until the transport
+      # actually reports the error, as in the disconnect-error test above.
+      assert {:error, reason} = send_until_error(first_handler)
+      assert reason in [:closed, :econnreset, :epipe]
+
+      assert_receive {:DOWN, ^ref, :process, ^first_handler, down_reason}, 5_000
+      assert match?({:shutdown, _}, down_reason)
+      refute Process.alive?(first_handler)
 
       # Second connection: full clean lifecycle on the same listener
       # (connection: close so completion is observable as EOF).
@@ -256,7 +255,7 @@ defmodule Datastar.PlugLifecycleTest do
   end
 
   defp drain(client, acc) do
-    case RawClient.read_available(client, 1_000) do
+    case RawClient.read_available(client, 5_000) do
       {:ok, data, client} ->
         drain(client, acc <> data)
 
