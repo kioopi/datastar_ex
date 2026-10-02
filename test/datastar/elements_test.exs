@@ -179,6 +179,13 @@ defmodule Datastar.ElementsTest do
         Elements.remove("#x", selector: "#y")
       end
     end
+
+    test "non-keyword options are rejected" do
+      assert_raise ArgumentError, ~r/options must be a keyword list/, fn ->
+        # credo:disable-for-lines:1 Credo.Check.Refactor.Apply
+        apply(Elements, :remove, ["#x", %{event_id: "1"}])
+      end
+    end
   end
 
   describe "patch/2 validation (§6.6)" do

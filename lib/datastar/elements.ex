@@ -170,10 +170,14 @@ defmodule Datastar.Elements do
   """
   @spec remove(String.t(), [patch_option()]) :: Datastar.SSE.event()
   def remove(selector, opts \\ []) do
-    for fixed <- [:mode, :selector], Keyword.has_key?(opts, fixed) do
-      raise ArgumentError, "remove/2 fixes #{inspect(fixed)}; pass it via patch/2 instead"
-    end
+    Options.validate!(opts, @allowed_opts)
 
-    patch(nil, Keyword.merge(opts, selector: selector, mode: :remove))
+    case Enum.find([:mode, :selector], &Keyword.has_key?(opts, &1)) do
+      nil ->
+        patch(nil, Keyword.merge(opts, selector: selector, mode: :remove))
+
+      fixed ->
+        raise ArgumentError, "remove/2 fixes #{inspect(fixed)}; pass it via patch/2 instead"
+    end
   end
 end
