@@ -28,6 +28,28 @@ if [ ! -d "$UPSTREAM" ]; then
     https://github.com/starfederation/datastar.git "$UPSTREAM"
 fi
 
+# I1(c): the checkout is a cache — on CI it is restored, not cloned, and a
+# stale or locally modified one would still produce a report labelled $TAG.
+# Verify it is at the tag and unmodified before trusting a PASS from it.
+# `^{commit}` because the upstream tag is annotated: the bare ref resolves to
+# the tag object, which never equals HEAD.
+if ! upstream_commit=$(git -C "$UPSTREAM" rev-parse "refs/tags/$TAG^{commit}" 2>/dev/null); then
+  echo "error: cached checkout $UPSTREAM has no $TAG tag; remove it and re-run" >&2
+  exit 2
+fi
+
+if [ "$(git -C "$UPSTREAM" rev-parse HEAD)" != "$upstream_commit" ]; then
+  echo "error: cached checkout $UPSTREAM is not at $TAG; remove it and re-run" >&2
+  exit 2
+fi
+
+if [ -n "$(git -C "$UPSTREAM" status --porcelain)" ]; then
+  echo "error: cached checkout $UPSTREAM has local modifications; remove it and re-run" >&2
+  exit 2
+fi
+
+echo "upstream $TAG at $upstream_commit (verified clean)"
+
 cd "$ROOT"
 MIX_ENV=test mix compile --warnings-as-errors
 
