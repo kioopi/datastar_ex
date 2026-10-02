@@ -81,7 +81,7 @@ defmodule Datastar.Signals.Reader do
     end
 
     case decoder.(json) do
-      {:ok, object} when is_map(object) and not is_struct(object) ->
+      {:ok, object} when is_non_struct_map(object) ->
         {:ok, object}
 
       {:ok, _other} ->

@@ -77,11 +77,7 @@ defmodule Datastar.Script do
     :ok
   end
 
-  defp normalize_attributes!(attributes, auto_remove?) do
-    unless is_map(attributes) and not is_struct(attributes) do
-      raise ArgumentError, ":attributes must be a map, got: #{inspect(attributes, limit: 5)}"
-    end
-
+  defp normalize_attributes!(attributes, auto_remove?) when is_non_struct_map(attributes) do
     Enum.reduce(attributes, %{}, fn {name, value}, acc ->
       normalized = normalize_name!(name)
 
@@ -96,6 +92,10 @@ defmodule Datastar.Script do
 
       Map.put(acc, normalized, validate_value!(normalized, value))
     end)
+  end
+
+  defp normalize_attributes!(attributes, _auto_remove?) do
+    raise ArgumentError, ":attributes must be a map, got: #{inspect(attributes, limit: 5)}"
   end
 
   defp normalize_name!(name) when is_atom(name), do: normalize_name!(Atom.to_string(name))

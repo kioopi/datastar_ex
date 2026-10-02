@@ -59,7 +59,7 @@ defmodule Datastar.Signals do
   @spec patch(json_object(), [patch_option()]) :: Datastar.SSE.event()
   def patch(signals, opts \\ [])
 
-  def patch(signals, opts) when is_map(signals) and not is_struct(signals) do
+  def patch(signals, opts) when is_non_struct_map(signals) do
     signals
     |> normalize_object!()
     |> JSON.encode!()
@@ -112,7 +112,7 @@ defmodule Datastar.Signals do
     value
   end
 
-  defp normalize_value!(value) when is_map(value) and not is_struct(value) do
+  defp normalize_value!(value) when is_non_struct_map(value) do
     normalize_object!(value)
   end
 

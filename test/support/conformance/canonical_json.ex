@@ -12,7 +12,7 @@ defmodule Datastar.Conformance.CanonicalJSON do
 
   @doc "Encodes decoded-JSON `term` as compact JSON with sorted object keys."
   @spec encode(term()) :: String.t()
-  def encode(object) when is_map(object) and not is_struct(object) do
+  def encode(object) when is_non_struct_map(object) do
     inner =
       object
       |> Enum.sort_by(fn {key, _value} -> validate_key!(key) end)
