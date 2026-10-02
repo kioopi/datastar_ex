@@ -1,0 +1,196 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MIX_ENV: test
+  # Keep in step with mise.toml.
+  ELIXIR_VERSION: "1.20"
+  OTP_VERSION: "29"
+  # Upstream tag pinned by scripts/conformance; part of the cache key so a
+  # bump cannot silently reuse the previous checkout.
+  DATASTAR_TAG: v1.0.4
+
+jobs:
+  # The fast gate — the same `mix precommit` run locally after every change.
+  precommit:
+    name: precommit (Elixir 1.20 / OTP 29)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-
+
+      # Dialyxir keeps its PLT inside _build, so the cache above carries it.
+      # A restored stale PLT is rebuilt incrementally, which is why the
+      # restore-keys fallback is worth having.
+      - run: mix deps.get
+      - run: mix precommit
+
+  # The library declares `elixir: "~> 1.18"`; without this that is an
+  # untested claim. Deliberately minimal — Credo and Dialyzer findings are
+  # version-sensitive and belong to the primary environment only.
+  compat:
+    name: compat (Elixir 1.18 / OTP 27)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: "1.18"
+          otp-version: "27"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-
+
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix test --warnings-as-errors
+
+  # `:plug` is optional, but this repo's test build always has it on the
+  # path via :bandit, so the `Code.ensure_loaded?(Plug)` boundary is only
+  # observable from a consumer project that does not depend on it.
+  boundary:
+    name: plug-free consumer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - run: ./scripts/test/plugless
+
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - run: mix deps.get
+      - run: mix hex.audit
+
+  # The official suite is the only check that speaks for ADR compliance, so
+  # it blocks like any other. `scripts/conformance` verifies the restored
+  # checkout is at the pinned tag and unmodified before trusting a PASS.
+  conformance:
+    name: official conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-
+
+      - uses: actions/cache@v4
+        with:
+          path: .conformance/datastar-${{ env.DATASTAR_TAG }}
+          key: conformance-${{ env.DATASTAR_TAG }}
+
+      - run: mix deps.get
+      - run: ./scripts/conformance
+
+      - if: failure()
+        run: tail -n 200 .conformance/server.log .conformance/runner.log || true
+
+  # Spec §19: an additional check for the primary environment. Its own job,
+  # so a Chrome failure cannot be mistaken for a unit-test failure.
+  browser:
+    name: browser smoke tests
+    runs-on: ubuntu-latest
+    env:
+      BROWSER_BIN: google-chrome
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-
+
+      - run: mix deps.get
+      - run: ./scripts/test/browser
+
+  docs:
+    name: docs build
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      # `mix docs` reads CHANGELOG.md and docs/*.md as extras, so a missing
+      # or renamed extra breaks the published docs. Catch it here.
+      - run: mix deps.get
+      - run: mix docs
