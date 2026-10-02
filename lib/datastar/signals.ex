@@ -26,8 +26,7 @@ defmodule Datastar.Signals do
 
   @type patch_option ::
           {:only_if_missing, boolean()}
-          | {:event_id, String.t()}
-          | {:retry_duration, non_neg_integer()}
+          | Datastar.Options.shared_option()
 
   @typedoc "JSON object member name sources; all normalize to strings."
   @type json_key :: String.t() | atom() | integer()

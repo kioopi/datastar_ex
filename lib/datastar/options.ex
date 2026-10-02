@@ -8,6 +8,9 @@ defmodule Datastar.Options do
   options to a semantic `Datastar.SSE.event()` map. Not public API.
   """
 
+  @typedoc "The `:event_id` and `:retry_duration` options every event constructor accepts (§5.3)."
+  @type shared_option :: {:event_id, String.t()} | {:retry_duration, non_neg_integer()}
+
   @doc """
   Validates that `opts` is a keyword list whose keys are all in `allowed`
   and unique, and returns it with defaults applied. Raises `ArgumentError`

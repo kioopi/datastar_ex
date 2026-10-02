@@ -51,8 +51,7 @@ defmodule Datastar.Elements do
           | {:use_view_transition, boolean()}
           | {:view_transition_selector, String.t()}
           | {:namespace, namespace()}
-          | {:event_id, String.t()}
-          | {:retry_duration, non_neg_integer()}
+          | Datastar.Options.shared_option()
 
   @doc """
   Constructs a `datastar-patch-elements` event from HTML iodata.

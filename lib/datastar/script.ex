@@ -39,8 +39,7 @@ defmodule Datastar.Script do
   @type execute_option ::
           {:auto_remove, boolean()}
           | {:attributes, attributes()}
-          | {:event_id, String.t()}
-          | {:retry_duration, non_neg_integer()}
+          | Datastar.Options.shared_option()
 
   @doc """
   Constructs a `datastar-patch-elements` event that executes `script` in
