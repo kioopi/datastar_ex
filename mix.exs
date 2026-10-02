@@ -78,7 +78,8 @@ defmodule DatastarEx.MixProject do
       {:ex_dna, "~> 1.0", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.0", only: [:dev, :test], runtime: false},
-      {:igniter, "~> 0.6", only: [:dev, :test]}
+      {:igniter, "~> 0.6", only: [:dev, :test]},
+      {:sobelow, "~> 0.15", only: [:dev, :test], runtime: false, warn_if_outdated: true}
     ]
   end
 
@@ -93,7 +94,8 @@ defmodule DatastarEx.MixProject do
         "credo --strict",
         "dialyzer",
         "ex_dna --max-clones 0",
-        "reach.check --arch --smells"
+        "reach.check --arch --smells",
+        "sobelow --no-router --quiet"
       ],
       # Full gate, run in CI and before a release. Adds the checks that need
       # Go (official conformance suite), Chrome (browser smoke tests) and the
