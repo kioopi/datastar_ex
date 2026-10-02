@@ -101,7 +101,10 @@ defmodule Datastar.Plug.SignalsTest do
     end
 
     test "adapter read errors are wrapped as {:read_body, reason}" do
-      conn = :post |> conn("/", "{}") |> Datastar.TestSupport.ErrorBodyAdapter.wrap()
+      conn =
+        :post
+        |> conn("/", "{}")
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.ErrorBodyAdapter)
 
       assert {:error, {:read_body, :timeout}, _} = Signals.read_signals(conn)
     end

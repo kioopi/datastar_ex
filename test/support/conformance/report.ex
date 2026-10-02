@@ -95,10 +95,11 @@ defmodule Datastar.Conformance.Report do
     }
   end
 
-  defp case_result(_case_name, %{result: :pass}), do: :pass
+  defp case_result(case_name, %{failed: failed}) do
+    if case_name in failed, do: :fail, else: :pass
+  end
 
-  defp case_result(case_name, %{failed: failed}),
-    do: if(case_name in failed, do: :fail, else: :pass)
+  defp method_label(method), do: method |> Atom.to_string() |> String.upcase()
 
   defp render_markdown(meta, cases, analysis) do
     {passed, total} = counts(cases, analysis)
@@ -134,14 +135,14 @@ defmodule Datastar.Conformance.Report do
 
   defp markdown_rows(cases, analysis) do
     Enum.map_join(cases, "\n", fn c ->
-      "| #{c.name} | #{c.method |> Atom.to_string() |> String.upcase()} | #{case_result(c.name, analysis)} |"
+      "| #{c.name} | #{method_label(c.method)} | #{case_result(c.name, analysis)} |"
     end)
   end
 
   defp markdown_details(cases) do
     Enum.map_join(cases, "\n", fn c ->
       """
-      ### #{c.name} (#{c.method |> Atom.to_string() |> String.upcase()})
+      ### #{c.name} (#{method_label(c.method)})
 
       Input events:
 
@@ -180,7 +181,7 @@ defmodule Datastar.Conformance.Report do
 
   defp counts(cases, analysis) do
     total = length(cases)
-    {total - length(Map.get(analysis, :failed, [])), total}
+    {total - length(analysis.failed), total}
   end
 
   defp result_banner(%{result: :pass}, passed, total), do: "PASS (#{passed}/#{total})"

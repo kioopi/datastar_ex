@@ -22,7 +22,7 @@ defmodule Datastar.PlugTest do
       http2 =
         :get
         |> conn("/stream")
-        |> Datastar.TestSupport.HTTP2Adapter.wrap()
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.HTTP2Adapter)
         |> Datastar.Plug.start()
 
       assert get_resp_header(http2, "connection") == []
@@ -97,7 +97,7 @@ defmodule Datastar.PlugTest do
         :get
         |> conn("/stream")
         |> Datastar.Plug.start()
-        |> Datastar.TestSupport.ClosedAdapter.wrap()
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.ClosedAdapter)
 
       assert Datastar.Plug.send_event(conn, %{data: "x"}) == {:error, :closed}
     end
@@ -107,7 +107,7 @@ defmodule Datastar.PlugTest do
         :get
         |> conn("/stream")
         |> Datastar.Plug.start()
-        |> Datastar.TestSupport.ClosedAdapter.wrap()
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.ClosedAdapter)
 
       err =
         assert_raise Datastar.Plug.TransportError, ~r/:closed/, fn ->
