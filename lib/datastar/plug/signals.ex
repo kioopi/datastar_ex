@@ -46,25 +46,28 @@ if Code.ensure_loaded?(Plug) do
             {:ok, map(), Plug.Conn.t()} | {:error, read_error(), Plug.Conn.t()}
     def read_signals(conn, opts \\ []) do
       opts = Options.validate!(opts, @allowed_opts)
-      max_length = Options.fetch_pos_integer!(opts, :max_length)
-      read_length = Options.fetch_pos_integer!(opts, :read_length)
-      decoder_opts = Keyword.take(opts, [:decoder])
+
+      read_opts = %{
+        max_length: Options.fetch_pos_integer!(opts, :max_length),
+        read_length: Options.fetch_pos_integer!(opts, :read_length),
+        decoder_opts: Keyword.take(opts, [:decoder])
+      }
 
       case Reader.source(conn.method) do
-        :query -> read_query(conn, max_length, decoder_opts)
-        :body -> read_body_signals(conn, max_length, read_length, decoder_opts)
+        :query -> read_query(conn, read_opts)
+        :body -> read_body_signals(conn, read_opts)
       end
     end
 
-    defp read_query(conn, max_length, decoder_opts) do
+    defp read_query(conn, read_opts) do
       conn = Plug.Conn.fetch_query_params(conn)
 
       case conn.query_params do
-        %{@query_key => raw} when byte_size(raw) > max_length ->
+        %{@query_key => raw} when byte_size(raw) > read_opts.max_length ->
           {:error, :too_large, conn}
 
         %{@query_key => raw} when is_binary(raw) ->
-          decode(raw, decoder_opts, conn)
+          decode(raw, read_opts, conn)
 
         %{@query_key => _non_binary} ->
           {:error, :not_an_object, conn}
@@ -74,10 +77,10 @@ if Code.ensure_loaded?(Plug) do
       end
     end
 
-    defp read_body_signals(conn, max_length, read_length, decoder_opts) do
+    defp read_body_signals(conn, read_opts) do
       case conn.body_params do
         %Plug.Conn.Unfetched{} ->
-          read_raw_body(conn, max_length, read_length, decoder_opts, [])
+          read_raw_body(conn, read_opts, [], 0)
 
         %{"_json" => _wrapped} ->
           # Plug.Parsers encodes non-object JSON bodies under "_json".
@@ -88,38 +91,28 @@ if Code.ensure_loaded?(Plug) do
       end
     end
 
-    defp read_raw_body(conn, max_length, read_length, decoder_opts, acc) do
-      case Plug.Conn.read_body(conn, length: read_length) do
-        {:ok, chunk, conn} ->
-          finish_body([chunk | acc], max_length, decoder_opts, conn)
-
-        {:more, chunk, conn} ->
-          acc = [chunk | acc]
-
-          if IO.iodata_length(acc) > max_length do
-            {:error, :too_large, conn}
-          else
-            read_raw_body(conn, max_length, read_length, decoder_opts, acc)
-          end
-
+    # `size` is the running byte count of `acc`, so the limit check never
+    # re-measures the body read so far.
+    defp read_raw_body(conn, read_opts, acc, size) do
+      case Plug.Conn.read_body(conn, length: read_opts.read_length) do
         {:error, reason} ->
           {:error, {:read_body, reason}, conn}
+
+        {status, chunk, conn} ->
+          acc = [acc, chunk]
+          size = size + byte_size(chunk)
+
+          cond do
+            size > read_opts.max_length -> {:error, :too_large, conn}
+            status == :more -> read_raw_body(conn, read_opts, acc, size)
+            size == 0 -> {:ok, %{}, conn}
+            true -> decode(IO.iodata_to_binary(acc), read_opts, conn)
+          end
       end
     end
 
-    defp finish_body(acc, max_length, decoder_opts, conn) do
-      if IO.iodata_length(acc) > max_length do
-        {:error, :too_large, conn}
-      else
-        case acc |> Enum.reverse() |> IO.iodata_to_binary() do
-          "" -> {:ok, %{}, conn}
-          body -> decode(body, decoder_opts, conn)
-        end
-      end
-    end
-
-    defp decode(raw, decoder_opts, conn) do
-      case Reader.decode(raw, decoder_opts) do
+    defp decode(raw, read_opts, conn) do
+      case Reader.decode(raw, read_opts.decoder_opts) do
         {:ok, signals} -> {:ok, signals, conn}
         {:error, reason} -> {:error, reason, conn}
       end
