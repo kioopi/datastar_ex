@@ -37,6 +37,8 @@ defmodule Datastar.SSE do
 
   """
 
+  @known_keys [:data, :event, :id, :retry]
+
   @typedoc "A semantic SSE event. `:data` is required; other fields are optional."
   @type event :: %{
           required(:data) => String.t(),
@@ -70,8 +72,6 @@ defmodule Datastar.SSE do
     ]
   end
 
-  @known_keys [:data, :event, :id, :retry]
-
   defp validate!(%module{}) do
     raise ArgumentError,
           "invalid SSE event: structs are not supported, got: #{inspect(module)}"
@@ -91,7 +91,9 @@ defmodule Datastar.SSE do
   end
 
   defp validate_keys!(event) do
-    case Enum.find(Map.keys(event), &(not is_atom(&1))) do
+    keys = Map.keys(event)
+
+    case Enum.find(keys, &(not is_atom(&1))) do
       nil ->
         :ok
 
@@ -103,9 +105,12 @@ defmodule Datastar.SSE do
       raise ArgumentError, "invalid SSE event: missing required :data"
     end
 
-    case Map.keys(event) -- @known_keys do
-      [] -> :ok
-      unknown -> raise ArgumentError, "invalid SSE event: unknown key #{inspect(hd(unknown))}"
+    case keys -- @known_keys do
+      [] ->
+        :ok
+
+      [unknown | _rest] ->
+        raise ArgumentError, "invalid SSE event: unknown key #{inspect(unknown)}"
     end
   end
 
