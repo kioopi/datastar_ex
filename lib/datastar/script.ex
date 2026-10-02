@@ -133,13 +133,12 @@ defmodule Datastar.Script do
     end)
   end
 
-  defp escape_attribute(value) do
-    value
-    |> String.replace("&", "&amp;")
-    |> String.replace("\"", "&quot;")
-    |> String.replace("<", "&lt;")
-    |> String.replace(">", "&gt;")
-  end
+  defp escape_attribute(value), do: String.replace(value, ["&", "\"", "<", ">"], &escape_char/1)
+
+  defp escape_char("&"), do: "&amp;"
+  defp escape_char("\""), do: "&quot;"
+  defp escape_char("<"), do: "&lt;"
+  defp escape_char(">"), do: "&gt;"
 
   # A case-insensitive `</script` inside the source would terminate the
   # generated element during HTML parsing (§8.4). `<\/script` is
