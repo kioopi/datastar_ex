@@ -116,22 +116,18 @@ defmodule Datastar.Signals do
     normalize_object!(value)
   end
 
-  defp normalize_value!(value) when is_list(value), do: normalize_list!(value, value)
+  defp normalize_value!(value) when is_list(value) do
+    if List.improper?(value) do
+      raise ArgumentError, "lists must be proper lists, got: #{inspect(value, limit: 5)}"
+    end
+
+    Enum.map(value, &normalize_value!/1)
+  end
 
   defp normalize_value!(value) do
     raise ArgumentError,
           "unsupported JSON value: #{inspect(value, limit: 5)} " <>
             "(supported: binaries, numbers, booleans, nil, proper lists, non-struct maps)"
-  end
-
-  defp normalize_list!([], _original), do: []
-
-  defp normalize_list!([head | tail], original) when is_list(tail) do
-    [normalize_value!(head) | normalize_list!(tail, original)]
-  end
-
-  defp normalize_list!(_improper, original) do
-    raise ArgumentError, "lists must be proper lists, got: #{inspect(original, limit: 5)}"
   end
 
   @doc """
