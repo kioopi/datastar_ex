@@ -8,6 +8,8 @@ defmodule Datastar.Options do
   options to a semantic `Datastar.SSE.event()` map. Not public API.
   """
 
+  alias Datastar.Validate
+
   @typedoc "The `:event_id` and `:retry_duration` options every event constructor accepts (§5.3)."
   @type shared_option :: {:event_id, String.t()} | {:retry_duration, non_neg_integer()}
 
@@ -134,20 +136,8 @@ defmodule Datastar.Options do
   defp apply_event_id(event, opts) do
     case Keyword.fetch(opts, :event_id) do
       :error -> event
-      {:ok, id} -> Map.put(event, :id, validate_event_id!(id))
+      {:ok, id} -> Map.put(event, :id, id |> Validate.utf8!() |> Validate.single_line!())
     end
-  end
-
-  defp validate_event_id!(id) do
-    unless is_binary(id) and String.valid?(id) do
-      raise ArgumentError, ":event_id must be a valid UTF-8 binary"
-    end
-
-    if String.contains?(id, ["\0", "\r", "\n"]) do
-      raise ArgumentError, ":event_id must not contain NULL, CR, or LF"
-    end
-
-    id
   end
 
   defp apply_retry(event, opts) do

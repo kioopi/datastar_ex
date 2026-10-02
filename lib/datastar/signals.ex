@@ -19,7 +19,7 @@ defmodule Datastar.Signals do
 
   """
 
-  alias Datastar.{Dataline, Options}
+  alias Datastar.{Dataline, Options, Validate}
 
   @event_type "datastar-patch-signals"
   @allowed_opts [:event_id, :retry_duration, only_if_missing: false]
@@ -83,13 +83,7 @@ defmodule Datastar.Signals do
     end)
   end
 
-  defp normalize_key!(key) when is_binary(key) do
-    unless String.valid?(key) do
-      raise ArgumentError, "map keys must be valid UTF-8, got: #{inspect(key, limit: 5)}"
-    end
-
-    key
-  end
+  defp normalize_key!(key) when is_binary(key), do: Validate.utf8!(key)
 
   defp normalize_key!(key) when is_atom(key), do: Atom.to_string(key)
   defp normalize_key!(key) when is_integer(key), do: Integer.to_string(key)
@@ -99,13 +93,7 @@ defmodule Datastar.Signals do
           "map keys must be binaries, atoms, or integers, got: #{inspect(key, limit: 5)}"
   end
 
-  defp normalize_value!(value) when is_binary(value) do
-    unless String.valid?(value) do
-      raise ArgumentError, "binary values must be valid UTF-8, got: #{inspect(value, limit: 5)}"
-    end
-
-    value
-  end
+  defp normalize_value!(value) when is_binary(value), do: Validate.utf8!(value)
 
   defp normalize_value!(value) when is_number(value) or is_boolean(value) or is_nil(value) do
     value
@@ -145,21 +133,13 @@ defmodule Datastar.Signals do
     raise ArgumentError, "signals JSON must not be empty"
   end
 
-  def patch_raw(json, opts) when is_binary(json) do
-    unless String.valid?(json) do
-      raise ArgumentError, "signals JSON must be a valid UTF-8 binary"
-    end
-
+  def patch_raw(json, opts) do
     opts = Options.validate!(opts, @allowed_opts)
     only_if_missing? = Options.fetch_boolean!(opts, :only_if_missing)
 
-    signal_lines = json |> Dataline.split() |> Enum.map(&("signals " <> &1))
+    signal_lines = json |> Validate.utf8!() |> Dataline.split() |> Enum.map(&("signals " <> &1))
     datalines = if only_if_missing?, do: ["onlyIfMissing true" | signal_lines], else: signal_lines
 
     Options.apply_shared!(%{event: @event_type, data: Enum.join(datalines, "\n")}, opts)
-  end
-
-  def patch_raw(_json, _opts) do
-    raise ArgumentError, "signals JSON must be a valid UTF-8 binary"
   end
 end

@@ -65,7 +65,7 @@ defmodule Datastar.ScriptTest do
         Script.execute("f()", attributes: [type: "module"])
       end
 
-      assert_raise ArgumentError, ~r/UTF-8 binary value/, fn ->
+      assert_raise ArgumentError, ~r/expected a valid UTF-8 binary/, fn ->
         Script.execute("f()", attributes: %{"type" => :module})
       end
     end

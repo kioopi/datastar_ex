@@ -21,7 +21,7 @@ defmodule Datastar.Elements do
 
   """
 
-  alias Datastar.{Dataline, Options}
+  alias Datastar.{Dataline, Options, Validate}
 
   @event_type "datastar-patch-elements"
   @modes [:outer, :inner, :remove, :replace, :prepend, :append, :before, :after]
@@ -88,11 +88,7 @@ defmodule Datastar.Elements do
                   __STACKTRACE__
       end
 
-    unless String.valid?(binary) do
-      raise ArgumentError, "elements must be valid UTF-8"
-    end
-
-    binary |> Dataline.split() |> Dataline.trim_trailing_blank()
+    binary |> Validate.utf8!() |> Dataline.split() |> Dataline.trim_trailing_blank()
   end
 
   defp validate_presence!(opts, []) do
@@ -135,22 +131,7 @@ defmodule Datastar.Elements do
     raise ArgumentError, "#{inspect(name)} must not be empty"
   end
 
-  defp validate_selector!(name, value) when is_binary(value) do
-    cond do
-      not String.valid?(value) ->
-        raise ArgumentError, "#{inspect(name)} must be a valid UTF-8 binary"
-
-      String.contains?(value, ["\r", "\n", "\0"]) ->
-        raise ArgumentError, "#{inspect(name)} must not contain CR, LF, or NULL"
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_selector!(name, _value) do
-    raise ArgumentError, "#{inspect(name)} must be a valid UTF-8 binary"
-  end
+  defp validate_selector!(_name, value), do: value |> Validate.utf8!() |> Validate.single_line!()
 
   defp validate_enum!(name, value, allowed) do
     unless value in allowed do

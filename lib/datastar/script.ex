@@ -20,7 +20,7 @@ defmodule Datastar.Script do
 
   """
 
-  alias Datastar.{Elements, Options}
+  alias Datastar.{Elements, Options, Validate}
 
   @allowed_opts [
     :event_id,
@@ -53,7 +53,7 @@ defmodule Datastar.Script do
   @spec execute(String.t(), [execute_option()]) :: Datastar.SSE.event()
   def execute(script, opts \\ []) do
     opts = Options.validate!(opts, @allowed_opts)
-    validate_script!(script)
+    Validate.utf8!(script)
     auto_remove? = Options.fetch_boolean!(opts, :auto_remove)
 
     attributes =
@@ -66,14 +66,6 @@ defmodule Datastar.Script do
     html = "<script" <> render_attributes(attributes) <> ">" <> neutralize(script) <> "</script>"
 
     Elements.patch(html, [selector: "body", mode: :append] ++ Keyword.take(opts, @shared_opts))
-  end
-
-  defp validate_script!(script) do
-    unless is_binary(script) and String.valid?(script) do
-      raise ArgumentError, "script must be a valid UTF-8 binary"
-    end
-
-    :ok
   end
 
   defp normalize_attributes!(attributes, auto_remove?) when is_non_struct_map(attributes) do
@@ -89,7 +81,7 @@ defmodule Datastar.Script do
         raise ArgumentError, "duplicate attribute name #{inspect(normalized)}"
       end
 
-      Map.put(acc, normalized, validate_value!(normalized, value))
+      Map.put(acc, normalized, Validate.utf8!(value))
     end)
   end
 
@@ -110,14 +102,6 @@ defmodule Datastar.Script do
   defp normalize_name!(name) do
     raise ArgumentError,
           "attribute names must be binaries or atoms, got: #{inspect(name, limit: 5)}"
-  end
-
-  defp validate_value!(name, value) do
-    unless is_binary(value) and String.valid?(value) do
-      raise ArgumentError, "attribute #{inspect(name)} must have a UTF-8 binary value"
-    end
-
-    value
   end
 
   defp maybe_put_auto_remove(attributes, false), do: attributes
