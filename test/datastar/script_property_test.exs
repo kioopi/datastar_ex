@@ -41,6 +41,27 @@ defmodule Datastar.ScriptPropertyTest do
     end
   end
 
+  # The HTML parser folds attribute names to lowercase and keeps only the
+  # first of a duplicate pair, so a name that reaches the wire in mixed case
+  # can shadow a generated one.
+  property "rendered attribute names are lowercase and unique" do
+    check all(
+            script <- Generators.script_source(),
+            attrs <- Generators.safe_attributes(),
+            auto <- boolean()
+          ) do
+      names =
+        Script.execute(script, auto_remove: auto, attributes: attrs).data
+        |> String.split("\n")
+        |> Enum.map_join("\n", &String.replace_prefix(&1, "elements ", ""))
+        |> then(&Regex.scan(~r/ ([A-Za-z0-9_:.-]+)="/, &1, capture: :all_but_first))
+        |> List.flatten()
+
+      assert names == Enum.map(names, &String.downcase(&1, :ascii))
+      assert names == Enum.uniq(names)
+    end
+  end
+
   property "no case-insensitive </script survives inside the generated element" do
     check all(script <- Generators.script_source()) do
       data = Script.execute(script, auto_remove: false).data

@@ -130,10 +130,18 @@ defmodule Datastar.Generators do
 
   @doc "Safe attribute maps with valid names and plain binary values."
   def safe_attributes do
-    name = string([?a..?z, ?0..?9, ?-, ?_], min_length: 1, max_length: 10)
+    # Mixed case on purpose: HTML attribute names are ASCII case-insensitive,
+    # so a lowercase-only generator cannot see a case-folding bug.
+    name = string([?a..?z, ?A..?Z, ?0..?9, ?-, ?_], min_length: 1, max_length: 10)
     value = string(:utf8, max_length: 15)
 
     map_of(name, value, max_length: 3)
-    |> map(&Map.delete(&1, "data-effect"))
+    |> map(&reject_reserved/1)
+  end
+
+  defp reject_reserved(attributes) do
+    Map.reject(attributes, fn {name, _value} ->
+      String.downcase(name, :ascii) == "data-effect"
+    end)
   end
 end

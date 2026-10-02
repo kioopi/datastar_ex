@@ -45,10 +45,17 @@ defmodule Datastar.Script do
   Constructs a `datastar-patch-elements` event that executes `script` in
   the browser.
 
-  Attribute names must match `[A-Za-z0-9_:.-]+`; values are escaped for
-  the double-quoted HTML attribute context and attributes render sorted
-  by name. When `auto_remove` is true (the default), `data-effect` is
-  reserved and supplying it raises.
+  Attribute names must match `[A-Za-z0-9_:.-]+` and are ASCII-lowercased,
+  because HTML attribute names are case-insensitive; values are escaped
+  for the double-quoted HTML attribute context and attributes render
+  sorted by name. When `auto_remove` is true (the default),
+  `data-effect` is reserved — in any case — and supplying it raises.
+
+  ## Examples
+
+      iex> Datastar.Script.execute("f()", auto_remove: false, attributes: %{"TyPe" => "module"}).data
+      "selector body\\nmode append\\nelements <script type=\\"module\\">f()</script>"
+
   """
   @spec execute(String.t(), [execute_option()]) :: Datastar.SSE.event()
   def execute(script, opts \\ []) do
@@ -96,7 +103,10 @@ defmodule Datastar.Script do
       raise ArgumentError, "invalid attribute name: #{inspect(name, limit: 5)}"
     end
 
-    name
+    # HTML attribute names are ASCII case-insensitive, so the canonical form
+    # is lowercase: duplicate detection, the `data-effect` reservation and
+    # the render order all have to agree with the parser.
+    String.downcase(name, :ascii)
   end
 
   defp normalize_name!(name) do

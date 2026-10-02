@@ -92,6 +92,28 @@ defmodule Datastar.ScriptTest do
       end
     end
 
+    test "names differing only in case are duplicates" do
+      assert_raise ArgumentError, ~r/duplicate attribute name "type"/, fn ->
+        Script.execute("f()", attributes: %{"TYPE" => "a", "type" => "b"})
+      end
+    end
+
+    test "names render ASCII-lowercased" do
+      assert Script.execute("f()", auto_remove: false, attributes: %{"TyPe" => "module"}).data =~
+               ~s(<script type="module">)
+    end
+
+    # HTML attribute names are ASCII case-insensitive, so the reservation
+    # has to be too — otherwise `DATA-EFFECT` renders alongside the
+    # generated `data-effect` and, sorting first, wins the duplicate.
+    test "the reservation is case-insensitive" do
+      for name <- ["DATA-EFFECT", "Data-Effect", "data-EFFECT"] do
+        assert_raise ArgumentError, ~r/data-effect is reserved/, fn ->
+          Script.execute("f()", attributes: %{name => "x()"})
+        end
+      end
+    end
+
     test "every case variation of </script is neutralized (§8.4)" do
       for tag <- ["</script", "</SCRIPT", "</ScRiPt"] do
         event = Script.execute("var s = '#{tag}>';", auto_remove: false)
