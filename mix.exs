@@ -1,7 +1,8 @@
 defmodule DatastarEx.MixProject do
   use Mix.Project
 
-  @version "0.0.1"
+  @version "0.1.0"
+  @source_url "https://github.com/kioopi/datastar_ex"
 
   def project do
     [
@@ -12,7 +13,12 @@ defmodule DatastarEx.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       dialyzer: [plt_add_apps: [:ex_unit, :stream_data, :plug, :mix]],
-      aliases: aliases()
+      aliases: aliases(),
+      name: "DatastarEx",
+      description: description(),
+      package: package(),
+      docs: docs(),
+      source_url: @source_url
     ]
   end
 
@@ -25,12 +31,38 @@ defmodule DatastarEx.MixProject do
 
   def cli do
     [
-      preferred_envs: [ci: :test]
+      preferred_envs: [ci: :test, precommit: :test]
     ]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_env), do: ["lib"]
+
+  defp description do
+    "An ADR-compliant Datastar SDK for Elixir: server-sent event generation, " <>
+      "signal reading and an optional Plug integration."
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => @source_url,
+        "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md",
+        "Datastar" => "https://data-star.dev/",
+        "SDK ADR" => "https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md"
+      },
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE docs/conformance.md)
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      source_ref: "v#{@version}",
+      extras: ["README.md", "CHANGELOG.md", "docs/conformance.md", "docs/benchmarks.md"]
+    ]
+  end
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
@@ -40,20 +72,21 @@ defmodule DatastarEx.MixProject do
       {:bandit, "~> 1.0", only: :test},
       {:server_sent_events, "~> 1.1", only: :test, runtime: false},
       {:stream_data, "~> 1.4", only: :test, runtime: false},
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:reach, "~> 2.0", only: [:dev, :test], runtime: false},
       {:ex_dna, "~> 1.0", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.0", only: [:dev, :test], runtime: false},
       {:igniter, "~> 0.6", only: [:dev, :test]}
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]
   end
 
   defp aliases() do
     [
-      ci: [
+      # Fast gate, run after every change (~10s warm). Everything here needs
+      # no toolchain beyond Elixir.
+      precommit: [
         "compile --warnings-as-errors",
         "format --check-formatted",
         "test --warnings-as-errors",
@@ -61,6 +94,20 @@ defmodule DatastarEx.MixProject do
         "dialyzer",
         "ex_dna --max-clones 0",
         "reach.check --arch --smells"
+      ],
+      # Full gate, run in CI and before a release. Adds the checks that need
+      # Go (official conformance suite), Chrome (browser smoke tests) and the
+      # network (retired-dependency audit), plus the package boundary.
+      #
+      # `hex.audit` runs first on purpose: `dialyzer` and `reach.check`
+      # leave the Hex archive off the code path, and a later `hex.audit`
+      # fails with "the task could not be found".
+      ci: [
+        "hex.audit",
+        "precommit",
+        "cmd ./scripts/test/plugless",
+        "cmd ./scripts/conformance",
+        "cmd ./scripts/test/browser"
       ]
     ]
   end

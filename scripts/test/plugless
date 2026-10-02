@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#MISE description="Compile the library from a consumer project that does not depend on Plug"
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+# `:plug` is declared `optional: true`, so a consumer that does not depend on
+# it never fetches it — and every Plug-facing module has to stay behind its
+# `Code.ensure_loaded?(Plug)` guard. Compiling here, rather than in this
+# repo's own build, is the only way to see that: `mix test` always has Plug
+# on the path via :bandit.
+mkdir -p "$WORK/plugless/lib"
+
+cat >"$WORK/plugless/mix.exs" <<EOF
+defmodule Plugless.MixProject do
+  use Mix.Project
+
+  def project do
+    [app: :plugless, version: "0.0.0", elixir: "~> 1.18", deps: deps()]
+  end
+
+  def application, do: [extra_applications: [:logger]]
+
+  defp deps, do: [{:datastar_ex, path: "$ROOT"}]
+end
+EOF
+
+cat >"$WORK/plugless/lib/plugless.ex" <<'EOF'
+defmodule Plugless do
+  @moduledoc "Touches the Plug-free surface so it is actually compiled against."
+  def event, do: Datastar.Elements.patch("<p>ok</p>")
+  def encoded, do: event() |> Datastar.SSE.encode() |> IO.iodata_to_binary()
+end
+EOF
+
+cd "$WORK/plugless"
+
+if MIX_ENV=prod mix deps.get 2>&1 | grep -q '^\* Getting plug'; then
+  echo "error: a Plug-free consumer still resolved :plug; is it still optional?" >&2
+  exit 1
+fi
+
+if [ -d "deps/plug" ]; then
+  echo "error: :plug was fetched into a consumer that does not depend on it" >&2
+  exit 1
+fi
+
+MIX_ENV=prod mix compile --warnings-as-errors
+
+# Prove the guarded modules are genuinely absent rather than silently broken.
+MIX_ENV=prod mix run -e '
+  Plugless.encoded()
+  false = Code.ensure_loaded?(Plug)
+  {:error, :nofile} = Code.ensure_loaded(Datastar.Plug.Signals)
+  IO.puts("plug-free consumer compiles and runs")
+'

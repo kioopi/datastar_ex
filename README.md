@@ -8,7 +8,7 @@ decodes JSON with the standard-library `JSON` module.
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed by adding `datastar_ex` to your list of dependencies in `mix.exs`:
+Add `datastar_ex` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
@@ -18,7 +18,13 @@ def deps do
 end
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc) and published on [HexDocs](https://hexdocs.pm). Once published, the docs can be found at <https://hexdocs.pm/datastar_ex>.
+`:plug` is optional — add it only if you want the `Datastar.Plug` integration:
+
+```elixir
+{:plug, "~> 1.16"}
+```
+
+Documentation is published on [HexDocs](https://hexdocs.pm/datastar_ex) and can be built locally with `mix docs`.
 
 ## Plug integration
 
@@ -64,4 +70,17 @@ Lifecycle behavior—including incremental delivery, disconnection handling, and
 * multiline HTML element patches and multiline (pretty-printed) raw signal patches, plus two ordered element patches landing in order
 * `executeScript` with the default `auto_remove: true` and with `auto_remove: false`
 
-They require Chrome (or `$BROWSER_BIN`) on `PATH` and are excluded from `mix ci` by design: the spec (§19) treats them as an additional check for the primary environment, not a portable CI gate.
+They require Chrome (or `$BROWSER_BIN`) on `PATH`. They are excluded from the default `mix test` run and from `mix precommit`; `mix ci` runs them, because the spec (§19) treats them as an additional check for the primary environment.
+
+## Checks
+
+| Command | Scope |
+| --- | --- |
+| `mix precommit` | The fast gate, run after every change: compile with warnings as errors, formatting, tests, Credo, Dialyzer, `ex_dna`, `reach.check`. Needs nothing but Elixir. |
+| `mix ci` | Everything `precommit` does, plus `mix hex.audit`, the Plug-free consumer compile (`scripts/test/plugless`), the official conformance suite and the browser smoke tests. Needs Go, Chrome and the network. |
+
+`scripts/test/plugless` compiles the library from a throwaway consumer project that does not depend on Plug, which is the only way to see the `Code.ensure_loaded?(Plug)` boundary hold — this repo's own test build always has Plug on the path via `:bandit`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
