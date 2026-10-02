@@ -48,6 +48,34 @@ defmodule Datastar.Plug.SignalsTest do
       assert {:error, :too_large, _} = Signals.read_signals(conn, max_length: 10)
     end
 
+    # `fetch_query_params/1` raises on an undecodable query string and on
+    # one past Plug's own 1 MB ceiling. Both have to reach the caller as a
+    # documented error tuple, not as an exception.
+    test "an undecodable query string is :invalid_query" do
+      conn = conn(:get, "/") |> Map.put(:query_string, "datastar=" <> <<0xFF>>)
+
+      assert {:error, :invalid_query, _} = Signals.read_signals(conn)
+    end
+
+    test "a query string past Plug's own ceiling is :too_large, not an exception" do
+      conn =
+        conn(:get, "/")
+        |> Map.put(:query_string, "datastar=" <> String.duplicate("a", 1_100_000))
+
+      assert {:error, :too_large, _} = Signals.read_signals(conn)
+    end
+
+    # The raw query string is checked before it is parsed, so a small
+    # configured limit is not spent parsing a megabyte first.
+    test "an oversized query string is rejected before parsing" do
+      conn =
+        conn(:get, "/")
+        |> Map.put(:query_string, "datastar=" <> String.duplicate("a", 5_000))
+
+      assert {:error, :too_large, conn} = Signals.read_signals(conn, max_length: 10)
+      assert %Plug.Conn.Unfetched{aspect: :query_params} = conn.query_params
+    end
+
     test "non-object query JSON is rejected" do
       for raw <- ["[1,2]", ~s("s"), "42", "null", "true", "false"] do
         conn = conn(:get, "/?datastar=" <> URI.encode_www_form(raw))
