@@ -126,4 +126,100 @@ defmodule Datastar.DecodeTest do
       end
     end
   end
+
+  describe "event/1 with signal events" do
+    test "returns the raw JSON and the omitted default" do
+      assert {:ok, decoded} = Decode.event(Datastar.patch_signals(%{"count" => 2}))
+
+      assert decoded == %{
+               type: :patch_signals,
+               signals: ~s({"count":2}),
+               only_if_missing: false,
+               retry_duration: 1_000
+             }
+    end
+
+    test "decodes onlyIfMissing" do
+      event = Datastar.patch_signals_raw(~s({"a":1}), only_if_missing: true)
+
+      assert {:ok, %{only_if_missing: true}} = Decode.event(event)
+    end
+
+    test "repeated signals datalines rejoin as multiline JSON" do
+      json = "{\n  \"a\": 1\n}"
+      event = Datastar.patch_signals_raw(json)
+
+      assert {:ok, decoded} = Decode.event(event)
+      assert decoded.signals == json
+    end
+
+    test "the raw JSON composes with Signals.Reader.decode/1" do
+      assert {:ok, %{signals: json}} = Decode.event(Datastar.patch_signals(%{"count" => 2}))
+      assert {:ok, %{"count" => 2}} = Datastar.Signals.Reader.decode(json)
+    end
+
+    test "an unknown dataline key" do
+      assert {:error, {:unknown_dataline, "elements"}} =
+               Decode.event(%{event: "datastar-patch-signals", data: "elements <p/>"})
+    end
+
+    test "a duplicated onlyIfMissing" do
+      assert {:error, {:duplicate_dataline, "onlyIfMissing"}} =
+               Decode.event(%{
+                 event: "datastar-patch-signals",
+                 data: "onlyIfMissing true\nonlyIfMissing false\nsignals {}"
+               })
+    end
+
+    test "an invalid onlyIfMissing value" do
+      assert {:error, {:invalid_value, "onlyIfMissing", "sometimes"}} =
+               Decode.event(%{
+                 event: "datastar-patch-signals",
+                 data: "onlyIfMissing sometimes\nsignals {}"
+               })
+    end
+
+    test "no signals dataline" do
+      assert {:error, :missing_signals} =
+               Decode.event(%{event: "datastar-patch-signals", data: "onlyIfMissing true"})
+    end
+  end
+
+  describe "event/1 shared options" do
+    test "an absent retry decodes as the Datastar default" do
+      assert {:ok, %{retry_duration: 1_000}} = Decode.event(Datastar.patch_elements("<p/>"))
+    end
+
+    test "an explicit retry survives, including zero" do
+      assert {:ok, %{retry_duration: 0}} =
+               Decode.event(Datastar.patch_elements("<p/>", retry_duration: 0))
+
+      assert {:ok, %{retry_duration: 5_000}} =
+               Decode.event(Datastar.patch_elements("<p/>", retry_duration: 5_000))
+    end
+
+    test "an absent id omits :event_id, and an empty id is preserved" do
+      assert {:ok, decoded} = Decode.event(Datastar.patch_elements("<p/>"))
+      refute Map.has_key?(decoded, :event_id)
+
+      assert {:ok, %{event_id: ""}} =
+               Decode.event(Datastar.patch_elements("<p/>", event_id: ""))
+
+      assert {:ok, %{event_id: "42"}} =
+               Decode.event(Datastar.patch_elements("<p/>", event_id: "42"))
+    end
+  end
+
+  describe "event/1 edge cases" do
+    test "a non-binary :data is a programming error" do
+      assert_raise ArgumentError, ~r/binary :data/, fn ->
+        Decode.event(%{event: "datastar-patch-elements", data: 42})
+      end
+    end
+
+    test "an interior blank content line survives the round trip" do
+      assert {:ok, decoded} = Decode.event(Datastar.patch_elements("<p>\n\n</p>"))
+      assert decoded.elements == "<p>\n\n</p>"
+    end
+  end
 end

@@ -41,6 +41,16 @@ defmodule Datastar.Decode do
   Recovering the original source would mean parsing HTML, which this
   module does not do.
 
+  ## Signals stay raw
+
+  `:signals` is the raw JSON binary as it travelled, not a decoded map.
+  `Datastar.Signals.Reader.decode/2` already owns JSON-object decoding
+  and its `:decoder` option, so it composes rather than being duplicated:
+
+      iex> {:ok, %{signals: json}} = Datastar.Decode.event(Datastar.patch_signals(%{"a" => 1}))
+      iex> Datastar.Signals.Reader.decode(json)
+      {:ok, %{"a" => 1}}
+
   ## Examples
 
       iex> Datastar.patch_elements("<p>x</p>", selector: "#t") |> Datastar.Decode.event()
@@ -51,6 +61,7 @@ defmodule Datastar.Decode do
   """
 
   @element_event "datastar-patch-elements"
+  @signal_event "datastar-patch-signals"
   @default_event "message"
   @default_retry_duration 1_000
 
@@ -76,17 +87,25 @@ defmodule Datastar.Decode do
   @namespaces %{"html" => :html, "svg" => :svg, "mathml" => :mathml}
 
   @typedoc "A decoded Datastar event. Defaults are always present; `:event_id` is not."
-  @type decoded :: %{
-          required(:type) => :patch_elements,
-          required(:mode) => Datastar.Elements.patch_mode(),
-          required(:namespace) => Datastar.Elements.namespace(),
-          required(:use_view_transition) => boolean(),
-          required(:retry_duration) => non_neg_integer(),
-          required(:elements) => String.t() | nil,
-          optional(:selector) => String.t(),
-          optional(:view_transition_selector) => String.t(),
-          optional(:event_id) => String.t()
-        }
+  @type decoded ::
+          %{
+            required(:type) => :patch_elements,
+            required(:mode) => Datastar.Elements.patch_mode(),
+            required(:namespace) => Datastar.Elements.namespace(),
+            required(:use_view_transition) => boolean(),
+            required(:retry_duration) => non_neg_integer(),
+            required(:elements) => String.t() | nil,
+            optional(:selector) => String.t(),
+            optional(:view_transition_selector) => String.t(),
+            optional(:event_id) => String.t()
+          }
+          | %{
+              required(:type) => :patch_signals,
+              required(:signals) => String.t(),
+              required(:only_if_missing) => boolean(),
+              required(:retry_duration) => non_neg_integer(),
+              optional(:event_id) => String.t()
+            }
 
   @typedoc "Stable categories for a wire event this module cannot interpret."
   @type decode_error ::
@@ -96,6 +115,7 @@ defmodule Datastar.Decode do
           | {:duplicate_dataline, String.t()}
           | :invalid_dataline
           | :missing_elements
+          | :missing_signals
 
   @doc """
   Decodes one parsed SSE event into its semantic Datastar event.
@@ -151,6 +171,7 @@ defmodule Datastar.Decode do
   defp event_type(event) do
     case Map.get(event, :event, @default_event) do
       @element_event -> {:ok, :patch_elements}
+      @signal_event -> {:ok, :patch_signals}
       other -> {:error, {:unknown_event, other}}
     end
   end
@@ -176,6 +197,45 @@ defmodule Datastar.Decode do
     pairs
     |> Enum.reduce_while({%{}, []}, &element_dataline/2)
     |> finish_elements()
+  end
+
+  defp decode(:patch_signals, pairs) do
+    pairs
+    |> Enum.reduce_while({%{}, []}, &signal_dataline/2)
+    |> finish_signals()
+  end
+
+  defp signal_dataline({"signals", value}, {acc, lines}) do
+    {:cont, {acc, [value | lines]}}
+  end
+
+  defp signal_dataline({"onlyIfMissing" = key, value}, {acc, lines}) do
+    with :ok <- refute_duplicate(acc, :only_if_missing, key),
+         {:ok, decoded} <- lookup(%{"true" => true, "false" => false}, key, value) do
+      {:cont, {Map.put(acc, :only_if_missing, decoded), lines}}
+    else
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp signal_dataline({key, _value}, _state) do
+    {:halt, {:error, {:unknown_dataline, key}}}
+  end
+
+  defp finish_signals({:error, reason}), do: {:error, reason}
+
+  defp finish_signals({acc, lines}) do
+    case join_content(lines) do
+      nil ->
+        {:error, :missing_signals}
+
+      signals ->
+        {:ok,
+         acc
+         |> Map.put(:type, :patch_signals)
+         |> Map.put(:signals, signals)
+         |> Map.put_new(:only_if_missing, false)}
+    end
   end
 
   defp element_dataline({"elements", value}, {acc, lines}) do
