@@ -173,4 +173,70 @@ defmodule Datastar.Plug.SignalsTest do
       assert Datastar.Plug.start(conn).state == :chunked
     end
   end
+
+  describe "read_signals!/2" do
+    test "returns the signals and the advanced conn" do
+      conn = conn(:post, "/", ~s({"count":2}))
+
+      assert {%{"count" => 2}, %Plug.Conn{}} = Datastar.Plug.Signals.read_signals!(conn)
+    end
+
+    test "an absent datastar query key is an empty map" do
+      assert {%{}, %Plug.Conn{}} = Datastar.Plug.Signals.read_signals!(conn(:get, "/"))
+    end
+
+    test "raises on invalid JSON, carrying the reason" do
+      conn = conn(:post, "/", "not json")
+
+      error =
+        assert_raise Datastar.Plug.Signals.Error, fn ->
+          Datastar.Plug.Signals.read_signals!(conn)
+        end
+
+      assert error.reason == :invalid_json
+    end
+
+    test "raises on a non-object body" do
+      error =
+        assert_raise Datastar.Plug.Signals.Error, fn ->
+          Datastar.Plug.Signals.read_signals!(conn(:post, "/", "[1,2]"))
+        end
+
+      assert error.reason == :not_an_object
+    end
+
+    test "raises on an oversized body" do
+      error =
+        assert_raise Datastar.Plug.Signals.Error, fn ->
+          Datastar.Plug.Signals.read_signals!(conn(:post, "/", ~s({"a":"xxxxxxxxxx"})),
+            max_length: 5
+          )
+        end
+
+      assert error.reason == :too_large
+    end
+
+    test "raises on an oversized query" do
+      error =
+        assert_raise Datastar.Plug.Signals.Error, fn ->
+          Datastar.Plug.Signals.read_signals!(conn(:get, "/?datastar=%7B%22a%22%3A1%7D"),
+            max_length: 5
+          )
+        end
+
+      assert error.reason == :too_large
+    end
+
+    test "the exception reports 400 through Plug.Exception" do
+      error = %Datastar.Plug.Signals.Error{reason: :invalid_json}
+
+      assert Plug.Exception.status(error) == 400
+    end
+
+    test "the message names the reason" do
+      message = Exception.message(%Datastar.Plug.Signals.Error{reason: :not_an_object})
+
+      assert message =~ "not_an_object"
+    end
+  end
 end

@@ -1,4 +1,32 @@
 if Code.ensure_loaded?(Plug) do
+  defmodule Datastar.Plug.Signals.Error do
+    @moduledoc """
+    Raised by `Datastar.Plug.Signals.read_signals!/2` and
+    `Datastar.Plug.ReadSignals` when incoming signals are malformed.
+
+    Carries the same `t:Datastar.Plug.Signals.read_error/0` the
+    tuple-returning form reports, and implements `Plug.Exception` with
+    status `400` so `Plug.ErrorHandler` or `Plug.Debugger` turns it into
+    a plain bad-request response — the same contract
+    `Plug.Parsers.ParseError` offers for a malformed body.
+
+    This module compiles only when the optional `:plug` dependency is
+    present.
+    """
+
+    defexception [:reason]
+
+    @impl true
+    def message(%__MODULE__{reason: reason}) do
+      "malformed Datastar signals: #{inspect(reason)}"
+    end
+
+    defimpl Plug.Exception do
+      def status(_exception), do: 400
+      def actions(_exception), do: []
+    end
+  end
+
   defmodule Datastar.Plug.Signals do
     @moduledoc """
     Reads incoming Datastar signals from a `%Plug.Conn{}` (SDK core spec
@@ -66,6 +94,30 @@ if Code.ensure_loaded?(Plug) do
       case Reader.source(conn.method) do
         :query -> read_query(conn, read_opts)
         :body -> read_body_signals(conn, read_opts)
+      end
+    end
+
+    @doc """
+    Like `read_signals/2`, but returns `{signals, conn}` and raises
+    `Datastar.Plug.Signals.Error` on malformed input.
+
+    The three-tuple form is the right *data* — the connection must come
+    back, because reading a body advances adapter state — but it cannot
+    take part in a `with` chain, since the `else` branch needs the
+    rebound connection. This form needs no `with` at all: the error is
+    no longer a value to thread, and the exception carries
+    status `400` through `Plug.Exception`, so `Plug.ErrorHandler` or `Plug.Debugger` answers
+    the request.
+
+    Read signals *before* starting the SSE response (§9.6); once the
+    response is chunked, malformed input can no longer receive a plain
+    400.
+    """
+    @spec read_signals!(Plug.Conn.t(), keyword()) :: {map(), Plug.Conn.t()}
+    def read_signals!(conn, opts \\ []) do
+      case read_signals(conn, opts) do
+        {:ok, signals, conn} -> {signals, conn}
+        {:error, reason, _conn} -> raise Datastar.Plug.Signals.Error, reason: reason
       end
     end
 
