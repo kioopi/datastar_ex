@@ -119,5 +119,21 @@ if Code.ensure_loaded?(Plug) do
     def send_comment(conn, comment) do
       Plug.Conn.chunk(conn, Datastar.SSE.encode_comment(comment))
     end
+
+    @doc """
+    Like `send_comment/2`, but raises `Datastar.Plug.TransportError`
+    (carrying the original reason) on transport failure.
+
+    The tuple-returning and raising forms exist for comments as well as
+    events, so a command path that sends a heartbeat comment does not
+    have to unwrap a result it has no use for.
+    """
+    @spec send_comment!(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+    def send_comment!(conn, comment) do
+      case send_comment(conn, comment) do
+        {:ok, conn} -> conn
+        {:error, reason} -> raise Datastar.Plug.TransportError, reason: reason
+      end
+    end
   end
 end

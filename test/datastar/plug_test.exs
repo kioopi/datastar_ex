@@ -130,4 +130,25 @@ defmodule Datastar.PlugTest do
       end
     end
   end
+
+  describe "send_comment!/2" do
+    test "returns the conn when the write succeeds" do
+      conn = conn(:get, "/") |> Datastar.Plug.start()
+
+      conn = Datastar.Plug.send_comment!(conn, "keep-alive")
+
+      assert conn.resp_body == ": keep-alive\n"
+    end
+
+    test "raises TransportError carrying the adapter reason when the client is gone" do
+      conn =
+        conn(:get, "/")
+        |> Datastar.Plug.start()
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.ClosedAdapter)
+
+      assert_raise Datastar.Plug.TransportError, ~r/:closed/, fn ->
+        Datastar.Plug.send_comment!(conn, "keep-alive")
+      end
+    end
+  end
 end
