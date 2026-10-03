@@ -111,6 +111,38 @@ if Code.ensure_loaded?(Plug) do
     end
 
     @doc """
+    Encodes every event and writes them as **one** chunk, in list order.
+
+    Because `Datastar.SSE.encode/1` is pure, all encoding happens before
+    anything is written: an invalid event raises `ArgumentError` with no
+    bytes sent, so there is no partial-write state for a caller to
+    recover from. An empty list writes nothing and returns `{:ok, conn}`.
+
+    Returns `{:error, reason}` on transport failure, like `send_event/2`.
+    The single-writer contract is unchanged — this is one write, not
+    several.
+    """
+    @spec send_events(Plug.Conn.t(), [Datastar.SSE.event()]) ::
+            {:ok, Plug.Conn.t()} | {:error, term()}
+    def send_events(conn, []), do: {:ok, conn}
+
+    def send_events(conn, events) when is_list(events) do
+      Plug.Conn.chunk(conn, Enum.map(events, &Datastar.SSE.encode/1))
+    end
+
+    @doc """
+    Like `send_events/2`, but raises `Datastar.Plug.TransportError`
+    (carrying the original reason) on transport failure.
+    """
+    @spec send_events!(Plug.Conn.t(), [Datastar.SSE.event()]) :: Plug.Conn.t()
+    def send_events!(conn, events) do
+      case send_events(conn, events) do
+        {:ok, conn} -> conn
+        {:error, reason} -> raise Datastar.Plug.TransportError, reason: reason
+      end
+    end
+
+    @doc """
     Writes comment lines (`Datastar.SSE.encode_comment/1`) as one chunk —
     a caller-driven heartbeat. Scheduling stays outside this module.
     """

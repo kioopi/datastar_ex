@@ -151,4 +151,73 @@ defmodule Datastar.PlugTest do
       end
     end
   end
+
+  describe "send_events/2" do
+    test "writes several events as one chunk, in list order" do
+      conn = conn(:get, "/") |> Datastar.Plug.start()
+
+      assert {:ok, conn} =
+               Datastar.Plug.send_events(conn, [
+                 Datastar.patch_signals(%{"a" => 1}),
+                 Datastar.patch_elements("<p>x</p>", selector: "#t")
+               ])
+
+      assert conn.resp_body ==
+               "event: datastar-patch-signals\ndata: signals {\"a\":1}\n\n" <>
+                 "event: datastar-patch-elements\ndata: selector #t\ndata: elements <p>x</p>\n\n"
+    end
+
+    test "an empty list writes nothing" do
+      conn = conn(:get, "/") |> Datastar.Plug.start()
+
+      assert {:ok, conn} = Datastar.Plug.send_events(conn, [])
+      assert conn.resp_body == ""
+    end
+
+    test "an invalid event anywhere in the list writes no bytes at all" do
+      conn = conn(:get, "/") |> Datastar.Plug.start()
+
+      assert_raise ArgumentError, fn ->
+        Datastar.Plug.send_events(conn, [
+          Datastar.patch_signals(%{"a" => 1}),
+          %{data: "fine", bogus_key: true}
+        ])
+      end
+
+      # The conn is immutable, so the pre-raise conn is the evidence: had the
+      # first event been written, the adapter would have recorded it.
+      assert conn.resp_body == ""
+    end
+
+    test "returns the transport error when the client is gone" do
+      conn =
+        conn(:get, "/")
+        |> Datastar.Plug.start()
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.ClosedAdapter)
+
+      assert {:error, :closed} =
+               Datastar.Plug.send_events(conn, [Datastar.patch_signals(%{"a" => 1})])
+    end
+  end
+
+  describe "send_events!/2" do
+    test "returns the conn on success" do
+      conn = conn(:get, "/") |> Datastar.Plug.start()
+
+      conn = Datastar.Plug.send_events!(conn, [Datastar.patch_signals(%{"a" => 1})])
+
+      assert conn.resp_body == "event: datastar-patch-signals\ndata: signals {\"a\":1}\n\n"
+    end
+
+    test "raises TransportError when the client is gone" do
+      conn =
+        conn(:get, "/")
+        |> Datastar.Plug.start()
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.ClosedAdapter)
+
+      assert_raise Datastar.Plug.TransportError, ~r/:closed/, fn ->
+        Datastar.Plug.send_events!(conn, [Datastar.patch_signals(%{"a" => 1})])
+      end
+    end
+  end
 end
