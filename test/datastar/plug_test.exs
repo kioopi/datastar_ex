@@ -174,8 +174,22 @@ defmodule Datastar.PlugTest do
       assert conn.resp_body == ""
     end
 
+    test "the recording adapter observes a successful write" do
+      conn =
+        conn(:get, "/")
+        |> Datastar.Plug.start()
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.RecordingAdapter)
+
+      assert {:ok, _conn} = Datastar.Plug.send_events(conn, [Datastar.patch_signals(%{"a" => 1})])
+
+      assert_received {:chunk_written, _bytes}
+    end
+
     test "an invalid event anywhere in the list writes no bytes at all" do
-      conn = conn(:get, "/") |> Datastar.Plug.start()
+      conn =
+        conn(:get, "/")
+        |> Datastar.Plug.start()
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.RecordingAdapter)
 
       assert_raise ArgumentError, fn ->
         Datastar.Plug.send_events(conn, [
@@ -184,9 +198,7 @@ defmodule Datastar.PlugTest do
         ])
       end
 
-      # The conn is immutable, so the pre-raise conn is the evidence: had the
-      # first event been written, the adapter would have recorded it.
-      assert conn.resp_body == ""
+      refute_received {:chunk_written, _bytes}
     end
 
     test "returns the transport error when the client is gone" do

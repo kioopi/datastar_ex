@@ -53,3 +53,23 @@ defmodule Datastar.TestSupport.ErrorBodyAdapter do
 
   def read_req_body(_state, _opts), do: {:error, :timeout}
 end
+
+defmodule Datastar.TestSupport.RecordingAdapter do
+  @moduledoc """
+  Test adapter shim: reports every `chunk/2` call to the connection's
+  owner process as `{:chunk_written, binary}` before delegating, so a
+  test can assert on writes that the returned conn would otherwise be
+  the only witness to — including a write that a raise discards.
+  """
+
+  defdelegate send_resp(state, status, headers, body), to: Plug.Adapters.Test.Conn
+  defdelegate send_chunked(state, status, headers), to: Plug.Adapters.Test.Conn
+  defdelegate read_req_body(state, opts), to: Plug.Adapters.Test.Conn
+  defdelegate get_http_protocol(state), to: Plug.Adapters.Test.Conn
+
+  @doc "Records the chunk against the owner process, then writes it normally."
+  def chunk(%{owner: owner} = state, body) do
+    send(owner, {:chunk_written, IO.iodata_to_binary(body)})
+    Plug.Adapters.Test.Conn.chunk(state, body)
+  end
+end
