@@ -50,37 +50,40 @@ if Code.ensure_loaded?(Plug) do
     Starts a chunked SSE response.
 
     Sets `content-type: text/event-stream` and `cache-control: no-cache`
-    exactly, adds `connection: keep-alive` only on HTTP/1.1, and calls
-    `Plug.Conn.send_chunked/2` (status from `:status`, default 200) —
-    which sends the response headers immediately.
+    exactly, deletes any `content-length`, adds `connection: keep-alive`
+    only on HTTP/1.1, and calls `Plug.Conn.send_chunked/2` (status from
+    `:status`, default 200) — which sends the response headers immediately.
 
     Raises `ArgumentError` if the response was already sent or on
     unknown options.
 
-    ## A non-2xx status discards the body
+    ## A non-2xx status is not a way to deliver an error
 
-    The Datastar client treats a non-2xx fetch as a failed request and
-    **discards the response body**. An error delivered with `422` never
-    reaches the `$_error` signal it was written to: the event is sent,
-    and the client throws it away.
+    The Datastar client treats a non-2xx response as a failed request: on
+    any status of 400 or above it dispatches a `datastar-fetch` error
+    event carrying the status, rather than treating the response as an
+    ordinary stream of patches. Delivering a validation error with `422`
+    is therefore unreliable — it surfaces to the client's error handling
+    rather than to the `$_error` signal it was written to.
 
-    This function accepts `status: 422` without complaint, so the
-    pattern has to be a convention rather than a check — *a rejection
-    travels in a signal, not in the status line*:
+    This function accepts `status: 422` without complaint, so the pattern
+    has to be a convention rather than a check — *a rejection travels in a
+    signal, not in the status line*:
 
         conn
         |> Datastar.Plug.start()
         |> Datastar.Plug.send_event!(Datastar.patch_signals(%{"_error" => message}))
 
     Answer `200` and let the client render the error from the signal.
-    Reserve non-2xx for failures that happen *before* the stream starts
-    — malformed signals, for instance, which is why signals are read
-    first (§9.6).
+    Reserve non-2xx for failures that happen *before* the stream starts —
+    malformed signals, for instance, which is why signals are read first
+    (§9.6).
 
     ## Other response headers
 
-    Only the headers above are managed; nothing else is cleared. Set
-    anything else on the conn before calling this function:
+    Only `content-type`, `cache-control`, `connection` (HTTP/1.1 only) and
+    `content-length` (which is deleted) are managed; nothing else is
+    touched. Set anything else on the conn before calling this function:
 
         conn
         |> Plug.Conn.put_resp_header("x-accel-buffering", "no")

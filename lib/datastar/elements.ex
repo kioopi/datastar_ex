@@ -74,9 +74,8 @@ defmodule Datastar.Elements do
       iex> Datastar.Elements.patch(~s(<main id="app">new</main>)).data
       "elements <main id=\\"app\\">new</main>"
 
-  An element with no `id` and no `:selector` has nothing to match, and
-  the patch is dropped by the client. Pass a `:selector` whenever the
-  markup has no id of its own.
+  Markup with no `id` of its own has nothing for the client to match, so
+  pass a `:selector` in that case.
   """
   @spec patch(iodata() | nil, [patch_option()]) :: Datastar.SSE.event()
   def patch(elements, opts \\ []) do
