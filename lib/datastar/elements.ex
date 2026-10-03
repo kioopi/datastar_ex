@@ -62,6 +62,21 @@ defmodule Datastar.Elements do
   selector-based removal (`mode: :remove` with a `:selector`).
 
   Raises `ArgumentError` on any invalid input; see the SDK core spec §6.6.
+
+  ## Omitting the selector targets by id
+
+  With no `:selector`, the client matches each top-level element
+  against the document **by that element's own `id`**. This is the
+  contract a whole-fragment read model depends on: render one element
+  with a stable id, patch it with no selector, and the client morphs
+  the existing element in place.
+
+      iex> Datastar.Elements.patch(~s(<main id="app">new</main>)).data
+      "elements <main id=\\"app\\">new</main>"
+
+  An element with no `id` and no `:selector` has nothing to match, and
+  the patch is dropped by the client. Pass a `:selector` whenever the
+  markup has no id of its own.
   """
   @spec patch(iodata() | nil, [patch_option()]) :: Datastar.SSE.event()
   def patch(elements, opts \\ []) do

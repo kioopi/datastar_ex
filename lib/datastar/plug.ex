@@ -56,6 +56,55 @@ if Code.ensure_loaded?(Plug) do
 
     Raises `ArgumentError` if the response was already sent or on
     unknown options.
+
+    ## A non-2xx status discards the body
+
+    The Datastar client treats a non-2xx fetch as a failed request and
+    **discards the response body**. An error delivered with `422` never
+    reaches the `$_error` signal it was written to: the event is sent,
+    and the client throws it away.
+
+    This function accepts `status: 422` without complaint, so the
+    pattern has to be a convention rather than a check — *a rejection
+    travels in a signal, not in the status line*:
+
+        conn
+        |> Datastar.Plug.start()
+        |> Datastar.Plug.send_event!(Datastar.patch_signals(%{"_error" => message}))
+
+    Answer `200` and let the client render the error from the signal.
+    Reserve non-2xx for failures that happen *before* the stream starts
+    — malformed signals, for instance, which is why signals are read
+    first (§9.6).
+
+    ## Other response headers
+
+    Only the headers above are managed; nothing else is cleared. Set
+    anything else on the conn before calling this function:
+
+        conn
+        |> Plug.Conn.put_resp_header("x-accel-buffering", "no")
+        |> Datastar.Plug.start()
+
+    `x-accel-buffering: no` is the one to remember: nginx buffers
+    proxied responses by default, which delays every event until a
+    buffer fills. For the same reason, leave SSE responses
+    uncompressed — compression middleware that buffers can delay
+    delivery indefinitely.
+
+    ## Slow readers block the writer
+
+    `Plug.Conn.chunk/2` blocks until the adapter accepts the bytes, so a
+    client that reads slowly stalls whatever process is writing to it,
+    and a long-lived stream will sit in a write rather than in its own
+    receive loop.
+
+    This **cannot be bounded from inside the request process**, which is
+    why no `:write_timeout` option is offered: there is no way to
+    abandon a `chunk/2` already in progress. Bounding a write requires
+    writing from a separate process that can be killed, which this
+    library does not provide. Plan for it in the application if slow
+    clients matter.
     """
     @spec start(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
     def start(conn, opts \\ []) do
