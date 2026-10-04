@@ -65,4 +65,32 @@ defmodule Datastar do
 
   @doc "Constructs a script-executing element patch. See `Datastar.Script.execute/2`."
   defdelegate execute_script(script, opts \\ []), to: Datastar.Script, as: :execute
+
+  @doc """
+  Constructs the canonical Datastar redirect: a script event that
+  assigns `url` to `window.location`.
+
+  The URL is JSON-encoded, which produces a valid double-quoted
+  JavaScript string literal with quotes, backslashes and control
+  characters escaped. That is the point of this function: building
+  `"window.location = '\#{url}'"` by hand injects into a `<script>` the
+  library itself generated as soon as a URL contains a single quote,
+  which a slug easily does.
+
+  `Datastar.Script.execute/2` then neutralizes `</script` inside the
+  source, so the breakout sequence is covered too.
+
+  Options are those of `Datastar.Script.execute/2`.
+
+  ## Examples
+
+      iex> Datastar.redirect("/").data
+      ~s{selector body\\nmode append\\nelements <script data-effect="el.remove()">window.location = "/"</script>}
+
+  """
+  @spec redirect(String.t(), [Datastar.Script.execute_option()]) :: Datastar.SSE.event()
+  def redirect(url, opts \\ []) do
+    url = Datastar.Validate.utf8!(url)
+    Datastar.Script.execute("window.location = " <> JSON.encode!(url), opts)
+  end
 end

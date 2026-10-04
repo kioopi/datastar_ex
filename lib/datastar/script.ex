@@ -51,6 +51,10 @@ defmodule Datastar.Script do
   sorted by name. When `auto_remove` is true (the default),
   `data-effect` is reserved — in any case — and supplying it raises.
 
+  For the specific case of a client-side redirect, use
+  `Datastar.redirect/2` rather than building the script by hand — it
+  JSON-encodes the URL, which hand-built string interpolation does not.
+
   ## Examples
 
       iex> Datastar.Script.execute("f()", auto_remove: false, attributes: %{"TyPe" => "module"}).data
