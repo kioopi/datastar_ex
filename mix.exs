@@ -63,6 +63,7 @@ defmodule DatastarEx.MixProject do
       extras: [
         "README.md",
         "guides/client_attributes.md",
+        "guides/casting_signals.md",
         "CHANGELOG.md",
         "docs/conformance.md",
         "docs/benchmarks.md"
