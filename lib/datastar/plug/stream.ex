@@ -45,6 +45,37 @@ if Code.ensure_loaded?(Plug) do
     SSE comments are inert, so a default costs nothing. Pass `:infinity` to
     disable it.
 
+    ## When a handler raises
+
+    The loop does not recover. It logs which message was being handled —
+    bounded, so a large or sensitive payload is not dumped whole — and
+    re-raises with the original stacktrace. The request process dies, the
+    connection drops, the client reconnects, and `:subscribe` plus
+    `:on_start` rebuild correct state.
+
+    The response headers went out before the first message was handled, so
+    **nothing the server does afterwards can produce an error status the
+    user sees**. That is why the loop logs rather than rescues.
+
+    The client bounds the retries itself: Datastar v1.0.4 retries with
+    exponential backoff from one second, doubling, capped at thirty, and
+    **gives up after ten attempts**, dispatching a `datastar-fetch`
+    `retries-failed` event. Listening for that event is the quickest way to
+    notice a broken stream from the browser.
+
+    Two habits make this rare. Do everything that can fail **before**
+    `run/3` — fetch the record, parse the id, authorize, validate — because
+    afterwards a failure can only drop the stream, never return a `404`.
+    And give `:handle` a catch-all clause, the way a `GenServer` is given a
+    catch-all `handle_info/2`: `:DOWN`, `:EXIT` and monitor traffic all
+    arrive here.
+
+    For a gentler reconnect, set `:retry_duration` on an event — every
+    constructor accepts it, and the client honours the SSE `retry` field,
+    overriding its own interval:
+
+        Datastar.patch_elements(html, retry_duration: 5_000)
+
     ## Examples
 
         iex> send(self(), :stop)
@@ -57,6 +88,8 @@ if Code.ensure_loaded?(Plug) do
     This module compiles only when the optional `:plug` dependency is
     present.
     """
+
+    require Logger
 
     alias Datastar.Options
 
@@ -114,7 +147,7 @@ if Code.ensure_loaded?(Plug) do
           loop(conn, state, opts)
 
         {:ok, on_start} ->
-          on_start.(state) |> apply_decision(conn, opts)
+          on_start |> call_on_start(state) |> apply_decision(conn, opts)
       end
     end
 
@@ -178,10 +211,35 @@ if Code.ensure_loaded?(Plug) do
           end
 
         {:message, message} ->
-          handle = Keyword.fetch!(opts, :handle)
-
-          handle.(message, state) |> apply_decision(conn, opts)
+          opts
+          |> Keyword.fetch!(:handle)
+          |> call_handle(message, state)
+          |> apply_decision(conn, opts)
       end
+    end
+
+    # A stacktrace says where the handler broke, not which message broke it.
+    # reraise/2 keeps the original stacktrace, so the framework's own report
+    # is unchanged - this adds information and removes none.
+    defp call_handle(handle, message, state) do
+      handle.(message, state)
+    rescue
+      exception ->
+        Logger.error(
+          "Datastar stream handler raised while handling " <>
+            inspect(message, limit: 5, printable_limit: 50)
+        )
+
+        reraise exception, __STACKTRACE__
+    end
+
+    defp call_on_start(on_start, state) do
+      on_start.(state)
+    rescue
+      exception ->
+        Logger.error("Datastar stream on_start raised while taking the initial snapshot")
+
+        reraise exception, __STACKTRACE__
     end
 
     # Every real message is wrapped, so no application message can be

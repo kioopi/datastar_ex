@@ -1,5 +1,6 @@
 defmodule Datastar.Plug.StreamTest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
   import Plug.Test
 
   alias Datastar.Plug.Stream
@@ -288,6 +289,61 @@ defmodule Datastar.Plug.StreamTest do
       conn = Stream.run(conn(:get, "/"), :state, handle: handle, heartbeat: :infinity)
 
       assert conn.resp_body == encoded(Datastar.patch_signals(%{"got" => "timeout"}))
+    end
+  end
+
+  describe "run/3 handler crashes" do
+    test "logs the offending message, then re-raises" do
+      handle = fn
+        {:boom, _payload}, _state -> raise "handler exploded"
+        _other, state -> {:noreply, state}
+      end
+
+      send(self(), {:boom, "details"})
+
+      log =
+        capture_log(fn ->
+          assert_raise RuntimeError, "handler exploded", fn ->
+            Stream.run(conn(:get, "/"), :state, handle: handle)
+          end
+        end)
+
+      assert log =~ ~s({:boom, "details"})
+    end
+
+    test "logs a raising on_start too" do
+      log =
+        capture_log(fn ->
+          assert_raise RuntimeError, "snapshot exploded", fn ->
+            Stream.run(conn(:get, "/"), :state,
+              handle: &strict_handle/2,
+              on_start: fn _state -> raise "snapshot exploded" end
+            )
+          end
+        end)
+
+      assert log =~ "on_start"
+    end
+
+    test "bounds the logged message so a large payload is not dumped whole" do
+      payload = String.duplicate("x", 5_000)
+
+      handle = fn
+        {:boom, _payload}, _state -> raise "handler exploded"
+        _other, state -> {:noreply, state}
+      end
+
+      send(self(), {:boom, payload})
+
+      log =
+        capture_log(fn ->
+          assert_raise RuntimeError, fn ->
+            Stream.run(conn(:get, "/"), :state, handle: handle)
+          end
+        end)
+
+      refute log =~ payload
+      assert String.length(log) < 2_000
     end
   end
 end
