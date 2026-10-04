@@ -31,6 +31,20 @@ if Code.ensure_loaded?(Plug) do
     and every other message reaches `:handle`, which is why a handler wants
     a catch-all clause.
 
+    ## Heartbeats
+
+    `:heartbeat` is a `receive` timeout, not a scheduled message, which buys
+    two things. It **reserves no message name**, so it cannot collide with
+    anything an application sends. And it **resets on every message**, so a
+    busy stream sends no keep-alives and an idle one does — which is the
+    right policy, because the point of a heartbeat is to put bytes on the
+    wire and a busy stream is already doing that.
+
+    It defaults to `30_000`. An idle stream behind a buffering proxy dies
+    without periodic bytes, and that failure is invisible in development;
+    SSE comments are inert, so a default costs nothing. Pass `:infinity` to
+    disable it.
+
     ## Examples
 
         iex> send(self(), :stop)
@@ -157,9 +171,11 @@ if Code.ensure_loaded?(Plug) do
 
     defp loop(conn, state, opts) do
       case next_message(Keyword.fetch!(opts, :heartbeat)) do
-        # Replaced by the keep-alive write in the next task.
         :timeout ->
-          loop(conn, state, opts)
+          case Datastar.Plug.send_comment(conn, "keep-alive") do
+            {:ok, conn} -> loop(conn, state, opts)
+            {:error, _reason} -> conn
+          end
 
         {:message, message} ->
           handle = Keyword.fetch!(opts, :handle)

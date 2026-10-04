@@ -54,6 +54,37 @@ defmodule Datastar.TestSupport.ErrorBodyAdapter do
   def read_req_body(_state, _opts), do: {:error, :timeout}
 end
 
+defmodule Datastar.TestSupport.FailAfterFirstChunkAdapter do
+  @moduledoc """
+  Test adapter shim: writes the first chunk normally and fails every chunk
+  after it with `{:error, :closed}`.
+
+  It makes a repeating writer deterministically terminable — a stream
+  heartbeat can be observed once and then stopped without sleeping. The
+  count lives in the calling process's dictionary, which is per-test
+  because ExUnit runs each test in its own process.
+  """
+
+  @counter :datastar_chunks_written
+
+  defdelegate send_resp(state, status, headers, body), to: Plug.Adapters.Test.Conn
+  defdelegate send_chunked(state, status, headers), to: Plug.Adapters.Test.Conn
+  defdelegate read_req_body(state, opts), to: Plug.Adapters.Test.Conn
+  defdelegate get_http_protocol(state), to: Plug.Adapters.Test.Conn
+
+  @doc "Writes the first chunk; fails afterwards."
+  def chunk(state, body) do
+    case Process.get(@counter, 0) do
+      0 ->
+        Process.put(@counter, 1)
+        Plug.Adapters.Test.Conn.chunk(state, body)
+
+      _written ->
+        {:error, :closed}
+    end
+  end
+end
+
 defmodule Datastar.TestSupport.RecordingAdapter do
   @moduledoc """
   Test adapter shim: reports every `chunk/2` call to the connection's

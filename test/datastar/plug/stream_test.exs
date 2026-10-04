@@ -264,4 +264,30 @@ defmodule Datastar.Plug.StreamTest do
       assert_received {:plug_conn, :sent}
     end
   end
+
+  describe "run/3 heartbeat" do
+    test "writes a keep-alive comment on timeout, and halts when the write fails" do
+      conn =
+        conn(:get, "/")
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.FailAfterFirstChunkAdapter)
+        |> Stream.run(:state, handle: &strict_handle/2, heartbeat: 5)
+
+      # One newline, not two: a comment is not an event, so it carries no
+      # blank-line terminator. See Datastar.SSE.encode_comment/1's doctest.
+      assert conn.resp_body == ": keep-alive\n"
+    end
+
+    test "an application message named :timeout reaches the handler" do
+      handle = fn
+        :timeout, state -> {:halt, Datastar.patch_signals(%{"got" => "timeout"}), state}
+        _other, state -> {:noreply, state}
+      end
+
+      send(self(), :timeout)
+
+      conn = Stream.run(conn(:get, "/"), :state, handle: handle, heartbeat: :infinity)
+
+      assert conn.resp_body == encoded(Datastar.patch_signals(%{"got" => "timeout"}))
+    end
+  end
 end
