@@ -141,8 +141,28 @@ if Code.ensure_loaded?(Plug) do
       :ok
     end
 
-    # Replaced by the real receive loop in the next task.
-    defp loop(conn, _state, _opts), do: conn
+    defp loop(conn, state, opts) do
+      case next_message(Keyword.fetch!(opts, :heartbeat)) do
+        # Replaced by the keep-alive write in the next task.
+        :timeout ->
+          loop(conn, state, opts)
+
+        {:message, message} ->
+          handle = Keyword.fetch!(opts, :handle)
+
+          handle.(message, state) |> apply_decision(conn, opts)
+      end
+    end
+
+    # Every real message is wrapped, so no application message can be
+    # mistaken for the heartbeat timeout however it is named.
+    defp next_message(heartbeat) do
+      receive do
+        message -> {:message, message}
+      after
+        heartbeat -> :timeout
+      end
+    end
 
     defp apply_decision({:noreply, state}, conn, opts), do: loop(conn, state, opts)
 
@@ -160,6 +180,12 @@ if Code.ensure_loaded?(Plug) do
         {:ok, conn} -> conn
         {:error, _reason} -> conn
       end
+    end
+
+    defp apply_decision(other, _conn, _opts) do
+      raise ArgumentError,
+            "a stream handler must return {:patch, events, state}, {:noreply, state}, " <>
+              "{:halt, state} or {:halt, events, state}, got: " <> inspect(other, limit: 5)
     end
 
     defp write(conn, events), do: Datastar.Plug.send_events(conn, List.wrap(events))

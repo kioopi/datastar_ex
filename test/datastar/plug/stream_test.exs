@@ -123,4 +123,116 @@ defmodule Datastar.Plug.StreamTest do
       assert conn.resp_body == ""
     end
   end
+
+  defp encoded(event), do: event |> Datastar.SSE.encode() |> IO.iodata_to_binary()
+
+  defp counting_handle({:patch, n}, state),
+    do: {:patch, Datastar.patch_signals(%{"n" => n}), state}
+
+  defp counting_handle(:stop, state), do: {:halt, state}
+  defp counting_handle(_other, state), do: {:noreply, state}
+
+  describe "run/3 loop" do
+    test "processes queued messages in order, then halts" do
+      send(self(), {:patch, 1})
+      send(self(), {:patch, 2})
+      send(self(), :stop)
+
+      conn = Stream.run(conn(:get, "/"), :state, handle: &counting_handle/2)
+
+      assert conn.resp_body ==
+               encoded(Datastar.patch_signals(%{"n" => 1})) <>
+                 encoded(Datastar.patch_signals(%{"n" => 2}))
+    end
+
+    test "threads state through decisions" do
+      handle = fn
+        :inc, n -> {:noreply, n + 1}
+        :report, n -> {:halt, Datastar.patch_signals(%{"n" => n}), n}
+        _other, n -> {:noreply, n}
+      end
+
+      send(self(), :inc)
+      send(self(), :inc)
+      send(self(), :report)
+
+      conn = Stream.run(conn(:get, "/"), 0, handle: handle)
+
+      assert conn.resp_body == encoded(Datastar.patch_signals(%{"n" => 2}))
+    end
+
+    test "a list of events is written as one chunk" do
+      events = [Datastar.patch_signals(%{"a" => 1}), Datastar.patch_signals(%{"b" => 2})]
+
+      handle = fn
+        :go, state -> {:halt, events, state}
+        _other, state -> {:noreply, state}
+      end
+
+      send(self(), :go)
+
+      conn = Stream.run(conn(:get, "/"), :state, handle: handle)
+
+      assert conn.resp_body == Enum.map_join(events, &encoded/1)
+    end
+
+    test "an empty event list writes nothing and continues" do
+      handle = fn
+        :empty, state -> {:patch, [], state}
+        :stop, state -> {:halt, state}
+        _other, state -> {:noreply, state}
+      end
+
+      send(self(), :empty)
+      send(self(), :stop)
+
+      assert Stream.run(conn(:get, "/"), :state, handle: handle).resp_body == ""
+    end
+
+    test "a nil event writes nothing and continues" do
+      handle = fn
+        :nothing, state -> {:patch, nil, state}
+        :stop, state -> {:halt, state}
+        _other, state -> {:noreply, state}
+      end
+
+      send(self(), :nothing)
+      send(self(), :stop)
+
+      assert Stream.run(conn(:get, "/"), :state, handle: handle).resp_body == ""
+    end
+
+    test "a failed write halts the loop and returns the conn" do
+      send(self(), {:patch, 1})
+      send(self(), {:patch, 2})
+
+      conn =
+        conn(:get, "/")
+        |> Datastar.Plug.Test.closed_conn()
+        |> Stream.run(:state, handle: &counting_handle/2)
+
+      assert %Plug.Conn{} = conn
+    end
+
+    test "an invalid decision raises with a message naming the return value" do
+      handle = fn _message, _state -> :not_a_decision end
+
+      send(self(), :go)
+
+      assert_raise ArgumentError, ~r/:not_a_decision/, fn ->
+        Stream.run(conn(:get, "/"), :state, handle: handle)
+      end
+    end
+
+    test "the stream is semantically decodable" do
+      send(self(), {:patch, 7})
+      send(self(), :stop)
+
+      conn = Stream.run(conn(:get, "/"), :state, handle: &counting_handle/2)
+
+      {[parsed], _rest} = ServerSentEvents.Parser.parse(conn.resp_body)
+
+      assert {:ok, %{type: :patch_signals, signals: ~s({"n":7})}} = Datastar.decode(parsed)
+    end
+  end
 end
