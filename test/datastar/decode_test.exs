@@ -74,6 +74,41 @@ defmodule Datastar.DecodeTest do
     end
   end
 
+  # `Datastar.Elements` keeps its mode and namespace lists private, and
+  # `Datastar.Decode` and `Datastar.Generators` each hold their own copy, so
+  # the round-trip property cannot notice a mode added to only one of them.
+  # This reads the lists out of Elements' source, so adding a mode there
+  # fails this test until Decode learns it.
+  describe "mode and namespace coverage" do
+    @elements_source File.read!(Path.expand("../../lib/datastar/elements.ex", __DIR__))
+
+    defp elements_list(attribute) do
+      [_, list] = Regex.run(~r/@#{attribute} (\[[^\]]+\])/, @elements_source)
+      {atoms, []} = Code.eval_string(list)
+      atoms
+    end
+
+    test "decodes an event for every mode Datastar.Elements accepts" do
+      modes = elements_list("modes")
+      assert modes != []
+
+      for mode <- modes do
+        event = Datastar.patch_elements("<p>x</p>", mode: mode, selector: "#t")
+        assert {:ok, %{mode: ^mode}} = Datastar.Decode.event(event)
+      end
+    end
+
+    test "decodes an event for every namespace Datastar.Elements accepts" do
+      namespaces = elements_list("namespaces")
+      assert namespaces != []
+
+      for namespace <- namespaces do
+        event = Datastar.patch_elements("<p>x</p>", namespace: namespace)
+        assert {:ok, %{namespace: ^namespace}} = Datastar.Decode.event(event)
+      end
+    end
+  end
+
   describe "event/1 element errors" do
     test "an unknown dataline key" do
       assert {:error, {:unknown_dataline, "bogus"}} =
