@@ -98,7 +98,13 @@ defmodule Datastar.Plug.StreamTest do
 
       # The response was never started, so a caller's error handler can still
       # produce a status. This is why subscribe runs first.
-      assert conn.state == :unset
+      #
+      # Asserting on `conn.state` would prove nothing: `conn` is bound before
+      # the call and %Plug.Conn{} is immutable, so it reads :unset whatever
+      # run/3 did. `Plug.Conn.send_chunked/2` posting {:plug_conn, :sent} is
+      # the observable, and this fails the moment start/2 moves ahead of
+      # subscribe.
+      refute_received {:plug_conn, :sent}
     end
 
     test "starts the chunked response" do
@@ -126,6 +132,16 @@ defmodule Datastar.Plug.StreamTest do
   end
 
   defp encoded(event), do: event |> Datastar.SSE.encode() |> IO.iodata_to_binary()
+
+  # Sends `count` ignorable messages roughly a millisecond apart. The sleep
+  # generates a message *rate*, which is the subject of the heartbeat test
+  # below; the test process itself never sleeps.
+  defp feed(pid, count) do
+    Enum.each(1..count, fn _ ->
+      send(pid, :ignore)
+      Process.sleep(1)
+    end)
+  end
 
   defp counting_handle({:patch, n}, state),
     do: {:patch, Datastar.patch_signals(%{"n" => n}), state}
@@ -190,17 +206,21 @@ defmodule Datastar.Plug.StreamTest do
       assert Stream.run(conn(:get, "/"), :state, handle: handle).resp_body == ""
     end
 
-    test "a nil event writes nothing and continues" do
+    # nil is outside event_or_events(), and the likely cause is a render
+    # function that returned nothing. Silently writing nothing would turn
+    # that bug into a stream that stops updating with no error, so it
+    # raises. {:noreply, state} already expresses a deliberate no-op.
+    test "a nil event raises rather than silently writing nothing" do
       handle = fn
         :nothing, state -> {:patch, nil, state}
-        :stop, state -> {:halt, state}
         _other, state -> {:noreply, state}
       end
 
       send(self(), :nothing)
-      send(self(), :stop)
 
-      assert Stream.run(conn(:get, "/"), :state, handle: handle).resp_body == ""
+      assert_raise ArgumentError, ~r/nil/, fn ->
+        Stream.run(conn(:get, "/"), :state, handle: handle)
+      end
     end
 
     test "a failed write halts the loop and returns the conn" do
@@ -276,6 +296,41 @@ defmodule Datastar.Plug.StreamTest do
       # One newline, not two: a comment is not an event, so it carries no
       # blank-line terminator. See Datastar.SSE.encode_comment/1's doctest.
       assert conn.resp_body == ": keep-alive\n"
+    end
+
+    # The heartbeat exists to keep bytes on the wire, so its deadline must be
+    # driven by writes, not by receives. A stream fed messages faster than the
+    # heartbeat whose handler ignores them writes nothing, and a receive-reset
+    # timer would never fire — silently the buffering-proxy death the default
+    # exists to prevent. The feeder's Process.sleep generates a message rate;
+    # it is the subject of the test, not synchronisation for it, and the test
+    # process never sleeps.
+    test "keeps writing keep-alives while ignored messages keep arriving" do
+      me = self()
+      feeder = spawn_link(fn -> feed(me, 600) end)
+
+      handle = fn :ignore, state ->
+        Process.put(:seen, Process.get(:seen, 0) + 1)
+        {:noreply, state}
+      end
+
+      conn =
+        conn(:get, "/")
+        |> Datastar.TestSupport.PlugAdapters.wrap(Datastar.TestSupport.FailAfterFirstChunkAdapter)
+        |> Stream.run(:state, handle: handle, heartbeat: 20)
+
+      Process.unlink(feeder)
+      Process.exit(feeder, :kill)
+
+      assert conn.resp_body == ": keep-alive\n"
+
+      # The discriminator, and the whole point of the test. A write-driven
+      # deadline writes its first keep-alive about 20ms in, having seen only a
+      # few dozen of the 600 messages, and halts on the second. A
+      # receive-reset timer is held off by every arriving message, so it could
+      # not write until the feed had finished - by which point it would have
+      # seen all 600.
+      assert Process.get(:seen, 0) < 200
     end
 
     test "an application message named :timeout reaches the handler" do

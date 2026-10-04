@@ -83,17 +83,29 @@ if Code.ensure_loaded?(Plug) do
 
     ## Heartbeats
 
-    `:heartbeat` is a `receive` timeout, not a scheduled message, which buys
-    two things. It **reserves no message name**, so it cannot collide with
-    anything an application sends. And it **resets on every message**, so a
-    busy stream sends no keep-alives and an idle one does — which is the
-    right policy, because the point of a heartbeat is to put bytes on the
-    wire and a busy stream is already doing that.
+    `:heartbeat` reserves **no message name** — there is no scheduled
+    message to collide with anything an application sends — and its deadline
+    is driven by **writes, not receives**. A stream that keeps receiving
+    messages whose handler returns `{:noreply, state}` writes nothing, so it
+    keeps emitting keep-alives; only an actual write defers the next one.
+
+    That distinction matters because both jobs of a heartbeat depend on bytes
+    reaching the client: keeping a buffering proxy from closing the
+    connection, and noticing a disconnect, which only a failed write reveals.
+    A timer reset by arriving messages would be held off indefinitely by
+    traffic that produces no events — including the catch-all clause this
+    module recommends.
 
     It defaults to `30_000`. An idle stream behind a buffering proxy dies
     without periodic bytes, and that failure is invisible in development;
-    SSE comments are inert, so a default costs nothing. Pass `:infinity` to
-    disable it.
+    SSE comments are inert, so a default costs nothing.
+
+    `:infinity` disables keep-alives **and disconnect detection with them**.
+    A failed write is the only disconnect signal a stream gets, so a stream
+    that never writes never learns the client is gone: it blocks in
+    `receive` indefinitely, holding its subscription and its connection.
+    Disable the heartbeat only when messages are certain to arrive, and to
+    produce writes, regularly.
 
     ## When a handler raises
 
@@ -197,7 +209,9 @@ if Code.ensure_loaded?(Plug) do
           loop(conn, state, opts)
 
         {:ok, on_start} ->
-          on_start |> call_on_start(state) |> apply_decision(conn, opts)
+          on_start
+          |> call_on_start(state)
+          |> apply_decision(conn, opts, fresh_deadline(opts))
       end
     end
 
@@ -252,21 +266,52 @@ if Code.ensure_loaded?(Plug) do
       :ok
     end
 
-    defp loop(conn, state, opts) do
-      case next_message(Keyword.fetch!(opts, :heartbeat)) do
-        :timeout ->
-          case Datastar.Plug.send_comment(conn, "keep-alive") do
-            {:ok, conn} -> loop(conn, state, opts)
-            {:error, _reason} -> conn
-          end
+    defp loop(conn, state, opts), do: loop(conn, state, opts, fresh_deadline(opts))
 
-        {:message, message} ->
-          opts
-          |> Keyword.fetch!(:handle)
-          |> call_handle(message, state)
-          |> apply_decision(conn, opts)
+    defp loop(conn, state, opts, deadline) do
+      # The deadline is checked before receiving, not only expressed as the
+      # `after` timeout. A `receive` always prefers an available message over
+      # its `after` clause whatever the timeout - even `after 0` - so a
+      # mailbox that is never empty would hold the keep-alive off forever.
+      if remaining(deadline) == 0 do
+        keep_alive(conn, state, opts)
+      else
+        case next_message(deadline) do
+          :timeout ->
+            keep_alive(conn, state, opts)
+
+          {:message, message} ->
+            opts
+            |> Keyword.fetch!(:handle)
+            |> call_handle(message, state)
+            |> apply_decision(conn, opts, deadline)
+        end
       end
     end
+
+    defp keep_alive(conn, state, opts) do
+      case Datastar.Plug.send_comment(conn, "keep-alive") do
+        {:ok, conn} -> loop(conn, state, opts, fresh_deadline(opts))
+        {:error, _reason} -> conn
+      end
+    end
+
+    # The deadline is driven by WRITES, not receives. Both purposes of a
+    # heartbeat - keeping a buffering proxy from closing an idle connection,
+    # and noticing a disconnect, which only a failed write reveals - depend
+    # on bytes reaching the client. A receive-reset timer would be held off
+    # indefinitely by traffic whose handler returns {:noreply, state}, which
+    # writes nothing, and that is the catch-all clause this module tells
+    # authors to write.
+    defp fresh_deadline(opts) do
+      case Keyword.fetch!(opts, :heartbeat) do
+        :infinity -> :infinity
+        milliseconds -> System.monotonic_time(:millisecond) + milliseconds
+      end
+    end
+
+    defp remaining(:infinity), do: :infinity
+    defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 
     # A stacktrace says where the handler broke, not which message broke it.
     # reraise/2 keeps the original stacktrace, so the framework's own report
@@ -294,39 +339,63 @@ if Code.ensure_loaded?(Plug) do
 
     # Every real message is wrapped, so no application message can be
     # mistaken for the heartbeat timeout however it is named.
-    defp next_message(heartbeat) do
+    defp next_message(deadline) do
       receive do
-        {:plug_conn, :sent} -> next_message(heartbeat)
+        {:plug_conn, :sent} -> next_message(deadline)
         message -> {:message, message}
       after
-        heartbeat -> :timeout
+        remaining(deadline) -> :timeout
       end
     end
 
-    defp apply_decision({:noreply, state}, conn, opts), do: loop(conn, state, opts)
+    # An ignored message leaves the deadline alone: nothing was written.
+    defp apply_decision({:noreply, state}, conn, opts, deadline),
+      do: loop(conn, state, opts, deadline)
 
-    defp apply_decision({:patch, events, state}, conn, opts) do
-      case write(conn, events) do
-        {:ok, conn} -> loop(conn, state, opts)
-        {:error, _reason} -> conn
+    defp apply_decision({:patch, events, state}, conn, opts, deadline) do
+      case events!(events) do
+        # An empty patch writes nothing, so it cannot reset the deadline
+        # either.
+        [] ->
+          loop(conn, state, opts, deadline)
+
+        events ->
+          case Datastar.Plug.send_events(conn, events) do
+            {:ok, conn} -> loop(conn, state, opts, fresh_deadline(opts))
+            {:error, _reason} -> conn
+          end
       end
     end
 
-    defp apply_decision({:halt, _state}, conn, _opts), do: conn
+    defp apply_decision({:halt, _state}, conn, _opts, _deadline), do: conn
 
-    defp apply_decision({:halt, events, _state}, conn, _opts) do
+    defp apply_decision({:halt, events, _state}, conn, _opts, _deadline) do
       case write(conn, events) do
         {:ok, conn} -> conn
         {:error, _reason} -> conn
       end
     end
 
-    defp apply_decision(other, _conn, _opts) do
+    defp apply_decision(other, _conn, _opts, _deadline) do
       raise ArgumentError,
             "a stream handler must return {:patch, events, state}, {:noreply, state}, " <>
               "{:halt, state} or {:halt, events, state}, got: " <> inspect(other, limit: 5)
     end
 
-    defp write(conn, events), do: Datastar.Plug.send_events(conn, List.wrap(events))
+    # `nil` is outside event_or_events/0 and its likely cause is a render
+    # function that returned nothing. Letting List.wrap/1 turn it into an
+    # empty write would make that bug a stream that stops updating with no
+    # error, so it raises; `{:noreply, state}` is how a deliberate no-op is
+    # expressed.
+    defp events!(events) when is_non_struct_map(events), do: [events]
+    defp events!(events) when is_list(events), do: events
+
+    defp events!(other) do
+      raise ArgumentError,
+            "a decision's events must be an event map or a list of them, got: " <>
+              inspect(other, limit: 5)
+    end
+
+    defp write(conn, events), do: Datastar.Plug.send_events(conn, events!(events))
   end
 end

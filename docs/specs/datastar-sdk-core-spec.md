@@ -1143,16 +1143,31 @@ Such a loop MUST:
   arriving between the two cannot be lost;
 - treat a failed write as the disconnect signal (§10.3), since no other
   signal is available;
-- pass every received message to the caller's handler except the
-  adapter's own `{:plug_conn, :sent}` notification, which the transport
-  posts to the request process from `send_chunked/2`; and
+- pass every received message to the caller's handler except
+  `{:plug_conn, :sent}`, which the transport posts to the request process
+  from `send_chunked/2` — a loop cannot honour this exception
+  selectively, because an identical message sent by an application is
+  indistinguishable, and it MUST document that; and
 - leave application exceptions to propagate, because the response status
   has already been sent and cannot convey an error.
 
 Heartbeat scheduling, which §10.5 places outside the adapter, belongs
-here. A `receive` timeout is preferred over a scheduled message: it
-reserves no message name and resets on every message, so a busy stream
-emits no keep-alives.
+here. A `receive` timeout is preferred over a scheduled message, because
+it reserves no message name.
+
+The heartbeat deadline MUST be driven by writes rather than by received
+messages. Both of its purposes — keeping a buffering proxy from closing
+an idle connection, and surfacing a disconnect, which only a failed
+write reveals — depend on bytes reaching the client, and a deadline
+reset by arriving messages is held off indefinitely by traffic that
+produces no events. Note that a `receive` always prefers an available
+message to its `after` clause, so the deadline MUST also be checked
+before receiving; expressing it only as the timeout is insufficient
+whenever the mailbox is never empty.
+
+A loop MAY allow the heartbeat to be disabled, and MUST then document
+that disabling it also disables disconnect detection, for the reason
+above.
 
 ## 11. Official Datastar conformance server
 
