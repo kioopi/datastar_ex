@@ -17,6 +17,20 @@ if Code.ensure_loaded?(Plug) do
     `%Plug.Conn{}`. That is what makes them ordinary functions: a handler is
     tested by calling it, with no socket and no connection in sight.
 
+    ## Infrastructure messages
+
+    Starting a chunked response posts `{:plug_conn, :sent}` to the request
+    process — its own mailbox — so the first `receive` in a hand-written
+    stream loop picks it up. `Plug.Conn`, Bandit and the Plug test adapter
+    all do this. This loop swallows it, so `:handle` never sees it and a
+    handler that pattern-matches its own messages strictly is safe.
+
+    The loop cannot tell that message apart from an identical one sent by an
+    application, so an application that sends `{:plug_conn, :sent}` itself
+    will find it swallowed too. Nothing else is filtered: `:DOWN`, `:EXIT`
+    and every other message reaches `:handle`, which is why a handler wants
+    a catch-all clause.
+
     ## Examples
 
         iex> send(self(), :stop)
@@ -158,6 +172,7 @@ if Code.ensure_loaded?(Plug) do
     # mistaken for the heartbeat timeout however it is named.
     defp next_message(heartbeat) do
       receive do
+        {:plug_conn, :sent} -> next_message(heartbeat)
         message -> {:message, message}
       after
         heartbeat -> :timeout

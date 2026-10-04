@@ -235,4 +235,33 @@ defmodule Datastar.Plug.StreamTest do
       assert {:ok, %{type: :patch_signals, signals: ~s({"n":7})}} = Datastar.decode(parsed)
     end
   end
+
+  # Deliberately has no catch-all clause: it raises FunctionClauseError on
+  # any message other than :stop. That is what makes it a detector.
+  defp strict_handle(:stop, state), do: {:halt, state}
+
+  describe "run/3 and infrastructure messages" do
+    test "{:plug_conn, :sent} never reaches the handler" do
+      me = self()
+
+      # on_start runs after start/2, so :stop lands in the mailbox *behind*
+      # the {:plug_conn, :sent} that start/2 posted.
+      conn =
+        Stream.run(conn(:get, "/"), :state,
+          on_start: fn state ->
+            send(me, :stop)
+            {:noreply, state}
+          end,
+          handle: &strict_handle/2
+        )
+
+      assert %Plug.Conn{state: :chunked} = conn
+    end
+
+    test "the mailbox really does contain {:plug_conn, :sent} after start/2" do
+      Datastar.Plug.start(conn(:get, "/"))
+
+      assert_received {:plug_conn, :sent}
+    end
+  end
 end
