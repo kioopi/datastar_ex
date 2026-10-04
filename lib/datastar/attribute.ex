@@ -140,6 +140,96 @@ defmodule Datastar.Attribute do
     {name, validate_value!(value)}
   end
 
+  @verbs [:get, :post, :put, :patch, :delete]
+
+  @doc """
+  Builds a `data-on:<event>` attribute — the event comes after the
+  **colon**.
+
+  `data-on-click` would be read as a plugin named `on-click`, which does
+  not exist, and the client would ignore the attribute without saying
+  so. That mistake is not expressible here.
+
+  Remaining options are modifiers, in order.
+
+  ## Examples
+
+      iex> Datastar.Attribute.on(:click, "@delete('/items/1')")
+      {"data-on:click", "@delete('/items/1')"}
+
+      iex> Datastar.Attribute.on(:init, "el.classList.add('leaving')", delay: "4s")
+      {"data-on:init__delay.4s", "el.classList.add('leaving')"}
+
+  """
+  @spec on(atom() | String.t(), String.t(), [modifier()]) :: {String.t(), String.t()}
+  def on(event, expression, modifiers \\ []) do
+    attribute("on", expression, key: event, modifiers: modifiers)
+  end
+
+  @doc """
+  Binds an input to a signal by name.
+
+  ## Examples
+
+      iex> Datastar.Attribute.bind("text")
+      {"data-bind", "text"}
+
+  """
+  @spec bind(atom() | String.t()) :: {String.t(), String.t()}
+  def bind(signal) when is_atom(signal), do: bind(Atom.to_string(signal))
+  def bind(signal), do: attribute("bind", signal)
+
+  @doc """
+  Sets an element's text from an expression.
+
+  ## Examples
+
+      iex> Datastar.Attribute.text("$count")
+      {"data-text", "$count"}
+
+  """
+  @spec text(String.t()) :: {String.t(), String.t()}
+  def text(expression), do: attribute("text", expression)
+
+  @doc """
+  Builds a Datastar action expression — the **value** half of an
+  attribute, not a whole attribute.
+
+  The URL is escaped for the single-quoted JavaScript string literal the
+  expression puts it in, so a URL containing a quote cannot close that
+  string. HTML escaping remains the renderer's job, as for every value
+  this module returns.
+
+  Compose it into a handler:
+
+      iex> Datastar.Attribute.on(:click, Datastar.Attribute.action(:put, "/items/42"))
+      {"data-on:click", "@put('/items/42')"}
+
+  ## Examples
+
+      iex> Datastar.Attribute.action(:put, "/items/42")
+      "@put('/items/42')"
+
+  """
+  @spec action(atom(), String.t(), keyword()) :: String.t()
+  def action(verb, url, opts \\ []) do
+    Options.validate!(opts, [])
+
+    unless verb in @verbs do
+      raise ArgumentError,
+            "action verb must be one of #{inspect(@verbs)}, got: #{inspect(verb, limit: 5)}"
+    end
+
+    escaped =
+      url
+      |> Validate.utf8!()
+      |> Validate.single_line!()
+      |> String.replace("\\", "\\\\")
+      |> String.replace("'", "\\'")
+
+    "@#{verb}('#{escaped}')"
+  end
+
   defp validate_plugin!(plugin) when is_atom(plugin) and not is_nil(plugin),
     do: validate_plugin!(Atom.to_string(plugin))
 

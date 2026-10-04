@@ -116,4 +116,81 @@ defmodule Datastar.AttributeTest do
       assert Attribute.attribute(:text, ~s|a < "b" & c|) == {"data-text", ~s|a < "b" & c|}
     end
   end
+
+  describe "on/2,3" do
+    test "uses the colon, not a hyphen" do
+      assert Attribute.on(:click, "@delete('/items/1')") ==
+               {"data-on:click", "@delete('/items/1')"}
+    end
+
+    test "accepts modifiers as plain options" do
+      assert Attribute.on(:init, "el.remove()", delay: "4s") ==
+               {"data-on:init__delay.4s", "el.remove()"}
+    end
+
+    test "accepts a bare modifier" do
+      assert Attribute.on(:click, "f()", [:once]) == {"data-on:click__once", "f()"}
+    end
+
+    test "accepts a hyphenated DOM event name" do
+      assert Attribute.on("my-event", "f()") == {"data-on:my-event", "f()"}
+    end
+
+    test "rejects an event name that would change the parse" do
+      assert_raise ArgumentError, fn -> Attribute.on("cl:ick", "f()") end
+    end
+  end
+
+  describe "bind/1 and text/1" do
+    test "bind uses the value form" do
+      assert Attribute.bind("text") == {"data-bind", "text"}
+      assert Attribute.bind(:fontSize) == {"data-bind", "fontSize"}
+    end
+
+    test "text takes an expression" do
+      assert Attribute.text("$count") == {"data-text", "$count"}
+    end
+  end
+
+  describe "action/2,3" do
+    test "builds an action expression" do
+      assert Attribute.action(:put, "/items/42") == "@put('/items/42')"
+    end
+
+    test "accepts every Datastar action verb" do
+      assert Attribute.action(:get, "/x") == "@get('/x')"
+      assert Attribute.action(:post, "/x") == "@post('/x')"
+      assert Attribute.action(:patch, "/x") == "@patch('/x')"
+      assert Attribute.action(:delete, "/x") == "@delete('/x')"
+    end
+
+    test "a single quote in the URL cannot close the JS string" do
+      assert Attribute.action(:put, "/items/it's") == ~S|@put('/items/it\'s')|
+    end
+
+    test "a backslash in the URL is escaped" do
+      assert Attribute.action(:put, ~S(/a\b)) == ~S|@put('/a\\b')|
+    end
+
+    test "a backslash and a quote together are each escaped once" do
+      assert Attribute.action(:put, ~S|/a\'b|) == ~S|@put('/a\\\'b')|
+    end
+
+    test "composes into on/2" do
+      assert Attribute.on(:click, Attribute.action(:put, "/items/42")) ==
+               {"data-on:click", "@put('/items/42')"}
+    end
+
+    test "rejects an unknown verb" do
+      assert_raise ArgumentError, ~r/action verb/, fn ->
+        Attribute.action(String.to_existing_atom("fetch"), "/x")
+      end
+    end
+
+    test "rejects CR, LF and NUL in the URL" do
+      for bad <- ["/a\nb", "/a\rb", "/a\0b"] do
+        assert_raise ArgumentError, fn -> Attribute.action(:get, bad) end
+      end
+    end
+  end
 end
