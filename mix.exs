@@ -68,7 +68,8 @@ defmodule DatastarEx.MixProject do
         "docs/conformance.md",
         "docs/benchmarks.md"
       ],
-      groups_for_extras: [Guides: ~r"guides/"]
+      groups_for_extras: [Guides: ~r"guides/"],
+      filter_modules: fn module, _metadata -> module != Datastar.Plug.Test.ClosedAdapter end
     ]
   end
 
