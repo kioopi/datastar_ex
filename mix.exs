@@ -52,7 +52,7 @@ defmodule DatastarEx.MixProject do
         "Datastar" => "https://data-star.dev/",
         "SDK ADR" => "https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md"
       },
-      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE docs/conformance.md)
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE docs/conformance.md guides)
     ]
   end
 
@@ -60,7 +60,14 @@ defmodule DatastarEx.MixProject do
     [
       main: "readme",
       source_ref: "v#{@version}",
-      extras: ["README.md", "CHANGELOG.md", "docs/conformance.md", "docs/benchmarks.md"]
+      extras: [
+        "README.md",
+        "guides/client_attributes.md",
+        "CHANGELOG.md",
+        "docs/conformance.md",
+        "docs/benchmarks.md"
+      ],
+      groups_for_extras: [Guides: ~r"guides/"]
     ]
   end
 
