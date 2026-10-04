@@ -1125,6 +1125,35 @@ belongs in the adapter layer, MUST NOT leak into the pure constructors, and
 MUST be introduced with documented event names, measurements, metadata, and
 compatibility expectations.
 
+### 10.7 Read-side stream loop
+
+The adapter's contract in §10.1–§10.5 is unchanged: it writes events and
+comments and knows nothing about scheduling, subscription or liveness.
+
+A separate module MAY own the read-side loop those primitives are used
+for — subscribing, taking an initial snapshot, receiving, patching,
+emitting heartbeats, and detecting a disconnect. In this implementation
+that module is `Datastar.Plug.Stream`.
+
+Such a loop MUST:
+
+- run in the request process and MUST NOT spawn one, preserving §10.4's
+  single-writer contract;
+- run its subscription step before its initial snapshot, so a change
+  arriving between the two cannot be lost;
+- treat a failed write as the disconnect signal (§10.3), since no other
+  signal is available;
+- pass every received message to the caller's handler except the
+  adapter's own `{:plug_conn, :sent}` notification, which the transport
+  posts to the request process from `send_chunked/2`; and
+- leave application exceptions to propagate, because the response status
+  has already been sent and cannot convey an error.
+
+Heartbeat scheduling, which §10.5 places outside the adapter, belongs
+here. A `receive` timeout is preferred over a scheduled message: it
+reserves no message name and resets on every message, so a busy stream
+emits no keep-alives.
+
 ## 11. Official Datastar conformance server
 
 The upstream suite is an HTTP black-box test. A pure library cannot run it without a small executable server.

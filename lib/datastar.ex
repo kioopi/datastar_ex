@@ -49,11 +49,11 @@ defmodule Datastar do
       and assigns them (optional `:plug` dependency)
     * `Datastar.Plug.Test` — a closed-connection conn for testing a
       consumer's disconnect branch (same optional dependency)
+    * `Datastar.Plug.Stream` — a read-side SSE stream loop over
+      `Datastar.Plug`'s primitives (same optional dependency)
 
-  A library-owned stream loop (subscribe, snapshot, heartbeat, detect the
-  disconnect) is not implemented yet; the primitives for writing one are
-  `Datastar.Plug.start/2`, `Datastar.Plug.send_event/2`,
-  `Datastar.Plug.send_events/2` and `Datastar.Plug.send_comment/2`.
+  `Datastar.Plug.Stream` owns the read-side loop — subscribe, snapshot,
+  heartbeat, and detecting the disconnect — over those same primitives.
 
   ## Compatibility
 
