@@ -19,7 +19,7 @@ defmodule Datastar do
     * `redirect/1,2` — constructs the canonical client-side redirect
     * `decode/1` — reads a parsed SSE event back into a Datastar event
 
-  Each is a facade that delegates to the corresponding constructor module below.
+  Each is a thin facade over the module below that implements it.
 
   ## Examples
 
