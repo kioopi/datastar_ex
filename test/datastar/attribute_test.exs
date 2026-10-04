@@ -74,6 +74,34 @@ defmodule Datastar.AttributeTest do
       end
     end
 
+    test "rejects a modifier name containing a dot, which the client reads as an argument" do
+      assert_raise ArgumentError, fn ->
+        Attribute.attribute("on", "f()", key: "click", modifiers: ["a.b"])
+      end
+
+      assert_raise ArgumentError, fn ->
+        Attribute.attribute("on", "f()", key: "click", modifiers: [{"a.b", "1"}])
+      end
+    end
+
+    test "rejects a modifier argument containing a dot, which the client splits in two" do
+      assert_raise ArgumentError, fn ->
+        Attribute.attribute("on", "f()", key: "click", modifiers: [delay: "1.5s"])
+      end
+    end
+
+    test "accepts a dot in a key: the client never splits a key on a dot" do
+      assert Attribute.attribute("on", "f()", key: "a.b") == {"data-on:a.b", "f()"}
+    end
+
+    test "still accepts digit-led modifier arguments" do
+      assert {"data-on:click__debounce.500ms__delay.4s", _} =
+               Attribute.attribute("on", "f()",
+                 key: "click",
+                 modifiers: [debounce: "500ms", delay: "4s"]
+               )
+    end
+
     test "rejects CR, LF and NUL in the value" do
       for bad <- ["a\nb", "a\rb", "a\0b"] do
         assert_raise ArgumentError, fn -> Attribute.attribute(:text, bad) end

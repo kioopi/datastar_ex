@@ -58,12 +58,21 @@ defmodule Datastar.Attribute do
 
   @allowed_opts [:key, modifiers: []]
 
-  # Keys and modifier names start with a letter. Modifier arguments may start
-  # with a digit ("500ms", "4s"). Neither format admits `:` or `_`, the
-  # client's own separators: a key or modifier containing either would
-  # silently change which plugin, key or modifier the client sees.
-  @name_format ~r/\A[A-Za-z][A-Za-z0-9.-]*\z/
-  @argument_format ~r/\A[A-Za-z0-9][A-Za-z0-9.-]*\z/
+  # The client parses an attribute as split("__") first, then splits the
+  # first segment on its first colon into plugin and key, then splits each
+  # modifier segment on "." into a name and its arguments. So:
+  #
+  #   * a key must not contain "__", or it would be read as modifiers. A "."
+  #     or further ":" in a key is inert: the key is everything after the
+  #     first colon and is never split again.
+  #   * a modifier name or argument must not contain "." (or "__"), or it
+  #     would arrive as two parts, e.g. "1.5s" as arguments "1" and "5s".
+  #
+  # Modifier arguments may start with a digit ("500ms", "4s"); names and
+  # keys start with a letter.
+  @key_format ~r/\A[A-Za-z][A-Za-z0-9.-]*\z/
+  @modifier_name_format ~r/\A[A-Za-z][A-Za-z0-9-]*\z/
+  @argument_format ~r/\A[A-Za-z0-9][A-Za-z0-9-]*\z/
 
   @typedoc "A modifier: a bare name, or a name with one argument."
   @type modifier :: atom() | String.t() | {atom() | String.t(), String.t()}
@@ -163,7 +172,7 @@ defmodule Datastar.Attribute do
 
   defp key_part(nil), do: ""
   defp key_part(key) when is_atom(key), do: key_part(Atom.to_string(key))
-  defp key_part(key) when is_binary(key), do: ":" <> validate_format!(:key, key, @name_format)
+  defp key_part(key) when is_binary(key), do: ":" <> validate_format!(:key, key, @key_format)
 
   defp key_part(other) do
     raise ArgumentError, "key must be an atom or binary, got: #{inspect(other, limit: 5)}"
@@ -184,7 +193,7 @@ defmodule Datastar.Attribute do
   end
 
   defp modifier_name!(name) when is_atom(name), do: modifier_name!(Atom.to_string(name))
-  defp modifier_name!(name), do: validate_format!(:modifier, name, @name_format)
+  defp modifier_name!(name), do: validate_format!(:modifier, name, @modifier_name_format)
 
   defp modifier_argument!(argument),
     do: validate_format!(:modifier_argument, argument, @argument_format)

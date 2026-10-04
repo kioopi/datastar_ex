@@ -39,7 +39,7 @@ defmodule Datastar.AttributePluginsTest do
     assert Enum.count(Datastar.Attribute.plugins()) == 17
     assert Enum.count(Datastar.Attribute.bare_attributes()) == 4
 
-    assert Datastar.Attribute.plugins() -- Datastar.Attribute.bare_attributes() ==
-             Datastar.Attribute.plugins()
+    bare = Datastar.Attribute.bare_attributes()
+    assert Enum.empty?(Enum.filter(Datastar.Attribute.plugins(), &(&1 in bare)))
   end
 end
