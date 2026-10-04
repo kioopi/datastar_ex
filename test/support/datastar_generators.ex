@@ -128,11 +128,17 @@ defmodule Datastar.Generators do
     ])
   end
 
-  @doc "Safe attribute maps with valid names and plain binary values."
-  def safe_attributes do
-    # Mixed case on purpose: HTML attribute names are ASCII case-insensitive,
-    # so a lowercase-only generator cannot see a case-folding bug.
-    name = string([?a..?z, ?A..?Z, ?0..?9, ?-, ?_], min_length: 1, max_length: 10)
+  @doc """
+  Safe attribute maps with valid names and plain binary values.
+
+  `name` is the generator names are drawn from. The default is mixed case on
+  purpose: HTML attribute names are ASCII case-insensitive, so a lowercase-only
+  generator cannot see a case-folding bug. Tests pass a deliberately narrow one
+  to force collisions.
+  """
+  def safe_attributes(
+        name \\ string([?a..?z, ?A..?Z, ?0..?9, ?-, ?_], min_length: 1, max_length: 10)
+      ) do
     value = string(:utf8, max_length: 15)
 
     map_of(name, value, max_length: 3)

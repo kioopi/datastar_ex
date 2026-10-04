@@ -38,7 +38,7 @@ defmodule DatastarTest do
       refute event.data =~ ~s{= '/items/it's'}
     end
 
-    test "a double quote in the URL is escaped for JS and then for the attribute context" do
+    test "a double quote in the URL is escaped for the JS string literal" do
       event = Datastar.redirect(~s{/a"b})
 
       assert event.data =~ ~S{window.location = "/a\"b"}

@@ -27,12 +27,17 @@ defmodule Datastar.ScriptPropertyTest do
     end
   end
 
+  # Guards the case-folding filter in safe_attributes/1. Names come from five
+  # letters in both cases, so a drawn map regularly holds a pair like "J" and
+  # "j", and without the filter this fails within the default runs. The space
+  # is deliberately not smaller: map_of/3 raises when asked for more distinct
+  # keys than a tiny name space can supply.
   property "safe_attributes never draws names that collide after ASCII case folding" do
-    # Collisions are rare (about 1 in 15k draws), so the default 100 runs would
-    # almost never catch a regression; this is still well under a second.
-    check all(attrs <- Generators.safe_attributes(), max_runs: 100_000) do
-      names = attrs |> Map.keys() |> Enum.map(&String.downcase(&1, :ascii))
-      assert names == Enum.uniq(names)
+    names = member_of(~w(J j K k L l M m N n))
+
+    check all(attrs <- Generators.safe_attributes(names)) do
+      folded = attrs |> Map.keys() |> Enum.map(&String.downcase(&1, :ascii))
+      assert folded == Enum.uniq(folded)
     end
   end
 
