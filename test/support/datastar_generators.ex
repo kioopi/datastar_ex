@@ -137,6 +137,16 @@ defmodule Datastar.Generators do
 
     map_of(name, value, max_length: 3)
     |> map(&reject_reserved/1)
+    |> filter(&unique_folded_names?/1)
+  end
+
+  # Map keys are unique as binaries, so "J" and "j" can both be drawn, but
+  # Script.execute/2 downcases attribute names and rejects duplicates. Filtering
+  # after reject_reserved/1 is cheaper: that step only removes entries, so it
+  # can only remove collisions, and fewer draws are discarded.
+  defp unique_folded_names?(attributes) do
+    names = Enum.map(Map.keys(attributes), &String.downcase(&1, :ascii))
+    length(names) == length(Enum.uniq(names))
   end
 
   defp reject_reserved(attributes) do

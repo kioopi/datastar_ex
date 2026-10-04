@@ -27,6 +27,15 @@ defmodule Datastar.ScriptPropertyTest do
     end
   end
 
+  property "safe_attributes never draws names that collide after ASCII case folding" do
+    # Collisions are rare (about 1 in 15k draws), so the default 100 runs would
+    # almost never catch a regression; this is still well under a second.
+    check all(attrs <- Generators.safe_attributes(), max_runs: 100_000) do
+      names = attrs |> Map.keys() |> Enum.map(&String.downcase(&1, :ascii))
+      assert names == Enum.uniq(names)
+    end
+  end
+
   property "auto-removal presence matches the option, attribute order is name-sorted" do
     check all(
             script <- Generators.script_source(),
