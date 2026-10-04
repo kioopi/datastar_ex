@@ -109,6 +109,13 @@ if Code.ensure_loaded?(Plug) do
     status `400` through `Plug.Exception`, so `Plug.ErrorHandler` or `Plug.Debugger` answers
     the request.
 
+    **The connection is unavailable on the error path.** The exception
+    carries only the reason, not the conn, and the conn that was read has
+    already consumed the request body. Do not rescue `Signals.Error` and
+    carry on with the conn you passed in: reading that conn again returns
+    `{:ok, %{}, conn}` instead of an error. A caller that needs the conn
+    after a failure should use `read_signals/2`, which returns it.
+
     Read signals *before* starting the SSE response (§9.6); once the
     response is chunked, malformed input can no longer receive a plain
     400.

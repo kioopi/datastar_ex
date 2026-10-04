@@ -44,7 +44,7 @@ defmodule Datastar.Decode do
   ## Signals stay raw
 
   `:signals` is the raw JSON binary as it travelled, not a decoded map.
-  `Datastar.Signals.Reader.decode/2` already owns JSON-object decoding
+  `Datastar.Signals.Reader.decode/1,2` already owns JSON-object decoding
   and its `:decoder` option, so it composes rather than being duplicated:
 
       iex> {:ok, %{signals: json}} = Datastar.Decode.event(Datastar.patch_signals(%{"a" => 1}))
@@ -122,7 +122,7 @@ defmodule Datastar.Decode do
 
   Returns `{:error, reason}` for wire data this module cannot interpret —
   untrusted input is data, not a programming error, which follows
-  `Datastar.Signals.Reader.decode/2` (§9.1). Input that is not a semantic
+  `Datastar.Signals.Reader.decode/1,2` (§9.1). Input that is not a semantic
   SSE event map at all *is* a programming error and raises
   `ArgumentError`.
 

@@ -26,10 +26,12 @@ error will reject every unchecked box. Default it to `false`.
 signal store, so a namespaced signal arrives as a nested object, not a
 flattened `"user.name"` key.
 
-**A rejection travels in a signal, not a status code.** On a status of
-400 or above the client dispatches a `datastar-fetch` error event
-carrying the status, so a non-2xx response is an unreliable carrier for
-signal patches. Answer `200` and put the rejection in a signal. See
+**A rejection travels in a signal, not a status code.** The client
+interprets a response body only when the status is exactly `200`; other
+2xx codes (`201`, `202`, `204`, `206`) and `3xx` redirects have their
+bodies dropped too. On a status of 400 or above the client additionally
+dispatches a `datastar-fetch` error event carrying the status. Answer
+exactly `200` and put the rejection in a signal. See
 `Datastar.Plug.start/2`.
 
 ## A schemaless Ecto changeset

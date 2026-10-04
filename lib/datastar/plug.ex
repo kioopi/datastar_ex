@@ -57,13 +57,15 @@ if Code.ensure_loaded?(Plug) do
     Raises `ArgumentError` if the response was already sent or on
     unknown options.
 
-    ## A non-2xx status is not a way to deliver an error
+    ## Answer exactly 200: any other status is not a way to deliver an error
 
-    The Datastar client treats a non-2xx response as a failed request: on
-    any status of 400 or above it dispatches a `datastar-fetch` error
-    event carrying the status, rather than treating the response as an
-    ordinary stream of patches. Delivering a validation error with `422`
-    is therefore unreliable — it surfaces to the client's error handling
+    The Datastar client interprets a response body only when the status is
+    exactly `200`. Every other status has its body dropped, including the
+    other 2xx codes (`201`, `202`, `204`, `206`) and every `3xx` redirect,
+    so `status: 201` is not a safe carrier. On a status of 400 or above
+    the client additionally dispatches a `datastar-fetch` error event
+    carrying the status. Delivering a validation error with `422` is
+    therefore unreliable — it surfaces to the client's error handling
     rather than to the `$_error` signal it was written to.
 
     This function accepts `status: 422` without complaint, so the pattern
@@ -75,7 +77,7 @@ if Code.ensure_loaded?(Plug) do
         |> Datastar.Plug.send_event!(Datastar.patch_signals(%{"_error" => message}))
 
     Answer `200` and let the client render the error from the signal.
-    Reserve non-2xx for failures that happen *before* the stream starts —
+    Reserve other statuses for failures that happen *before* the stream starts —
     malformed signals, for instance, which is why signals are read first
     (§9.6).
 
