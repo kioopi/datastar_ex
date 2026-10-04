@@ -181,10 +181,16 @@ defmodule Datastar.AttributeTest do
                {"data-on:click", "@put('/items/42')"}
     end
 
+    # String.to_existing_atom/1, not the literal :fetch: a literal triggers an
+    # Elixir 1.20 type warning that --warnings-as-errors fails, and credo bans apply/3.
     test "rejects an unknown verb" do
       assert_raise ArgumentError, ~r/action verb/, fn ->
         Attribute.action(String.to_existing_atom("fetch"), "/x")
       end
+    end
+
+    test "rejects an unknown option" do
+      assert_raise ArgumentError, fn -> Attribute.action(:get, "/x", bogus: 1) end
     end
 
     test "rejects CR, LF and NUL in the URL" do

@@ -9,13 +9,15 @@ defmodule Datastar do
 
   ## Primary public surface (§4.6)
 
-  The five functions below form the main entry point to the library:
+  The functions below form the main entry point to the library:
 
     * `patch_elements/1,2` — constructs a `datastar-patch-elements` event
     * `remove_elements/1,2` — removes elements by selector
     * `patch_signals/1,2` — constructs a `datastar-patch-signals` event from a map
     * `patch_signals_raw/1,2` — constructs a `datastar-patch-signals` event from raw JSON
     * `execute_script/1,2` — constructs a script-executing element patch
+    * `redirect/1,2` — constructs the canonical client-side redirect
+    * `decode/1` — reads a parsed SSE event back into a Datastar event
 
   Each is a facade that delegates to the corresponding constructor module below.
 
@@ -40,9 +42,18 @@ defmodule Datastar do
       is present)
     * `Datastar.Plug.Signals` — reads incoming Datastar signals from a
       `%Plug.Conn{}` (same optional dependency)
+    * `Datastar.Decode` — reads Datastar events back out of parsed SSE events
+    * `Datastar.Attribute` — pure constructors for the client-side
+      `data-*` attributes, returned as `{name, value}` tuples
+    * `Datastar.Plug.ReadSignals` — a plug that reads incoming signals
+      and assigns them (optional `:plug` dependency)
+    * `Datastar.Plug.Test` — a closed-connection conn for testing a
+      consumer's disconnect branch (same optional dependency)
 
-  Higher-level conveniences — signal store subscriptions, framework-specific
-  helpers — are not implemented yet.
+  A library-owned stream loop (subscribe, snapshot, heartbeat, detect the
+  disconnect) is not implemented yet; the primitives for writing one are
+  `Datastar.Plug.start/2`, `Datastar.Plug.send_event/2`,
+  `Datastar.Plug.send_events/2` and `Datastar.Plug.send_comment/2`.
 
   ## Compatibility
 
@@ -93,4 +104,7 @@ defmodule Datastar do
     url = Datastar.Validate.utf8!(url)
     Datastar.Script.execute("window.location = " <> JSON.encode!(url), opts)
   end
+
+  @doc "Decodes a parsed SSE event into a semantic Datastar event. See `Datastar.Decode.event/1`."
+  defdelegate decode(event), to: Datastar.Decode, as: :event
 end

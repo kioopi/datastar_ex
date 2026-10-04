@@ -70,4 +70,24 @@ defmodule DatastarTest do
       assert_raise ArgumentError, fn -> Datastar.redirect(:home) end
     end
   end
+
+  describe "decode/1" do
+    test "delegates to Datastar.Decode.event/1" do
+      event = Datastar.patch_elements("<p>x</p>", selector: "#t")
+
+      assert Datastar.decode(event) == Datastar.Decode.event(event)
+      assert {:ok, %{type: :patch_elements, selector: "#t"}} = Datastar.decode(event)
+    end
+
+    test "round-trips through a real SSE parser" do
+      wire =
+        Datastar.patch_signals(%{"count" => 2})
+        |> Datastar.SSE.encode()
+        |> IO.iodata_to_binary()
+
+      {[parsed], _state} = ServerSentEvents.Parser.parse(wire)
+
+      assert {:ok, %{type: :patch_signals, signals: ~s({"count":2})}} = Datastar.decode(parsed)
+    end
+  end
 end
