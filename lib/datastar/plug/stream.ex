@@ -17,6 +17,56 @@ if Code.ensure_loaded?(Plug) do
     `%Plug.Conn{}`. That is what makes them ordinary functions: a handler is
     tested by calling it, with no socket and no connection in sight.
 
+    ## A list stream
+
+        get "/stream" do
+          Datastar.Plug.Stream.run(conn, :no_state,
+            subscribe: fn -> PubSub.subscribe(:items) end,
+            on_start: &snapshot/1,
+            handle: &handle/2
+          )
+        end
+
+        defp snapshot(state),
+          do: {:patch, Datastar.patch_elements(Render.index_main(Store.list())), state}
+
+        defp handle({:items_changed}, state), do: snapshot(state)
+        defp handle(_other, state), do: {:noreply, state}
+
+    ## A detail stream that may already be gone
+
+    `:on_start` returns the same decision as `:handle`, so the snapshot can
+    end the stream. That matters when the thing being watched was deleted
+    *before* this stream subscribed: no broadcast is coming, so the snapshot
+    itself has to stop.
+
+        get "/items/:id/stream" do
+          with {:ok, item_id} <- parse_id(id),
+               {:ok, _item} <- Store.fetch(item_id) do
+            Datastar.Plug.Stream.run(conn, %{id: item_id},
+              subscribe: fn -> PubSub.subscribe({:item, item_id}) end,
+              on_start: &snapshot/1,
+              handle: &handle/2
+            )
+          else
+            _not_found -> send_resp(conn, 404, "Not found")
+          end
+        end
+
+        defp snapshot(state) do
+          case Store.fetch(state.id) do
+            {:ok, item} -> {:patch, Datastar.patch_elements(Render.detail_main(item)), state}
+            :error -> {:halt, Datastar.redirect("/"), state}
+          end
+        end
+
+        defp handle({:item_changed}, state), do: snapshot(state)
+        defp handle({:item_deleted}, state), do: {:halt, Datastar.redirect("/"), state}
+        defp handle(_other, state), do: {:noreply, state}
+
+    Note where the `404` lives: in the router, **before** `run/3`. Once the
+    response starts, a missing record can no longer produce a status.
+
     ## Infrastructure messages
 
     Starting a chunked response posts `{:plug_conn, :sent}` to the request
