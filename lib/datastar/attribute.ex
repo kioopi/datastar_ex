@@ -56,26 +56,37 @@ defmodule Datastar.Attribute do
 
   @bare_attributes ~w(ignore ignore-morph nonce preserve-attr)
 
+  # The actions the client registers, verified against the bundle by
+  # Datastar.AttributePluginsTest.
+  @verbs [:get, :patch, :post, :put, :query, :delete]
+
   @allowed_opts [:key, modifiers: []]
 
   # The client parses an attribute as split("__") first, then splits the
   # first segment on its first colon into plugin and key, then splits each
   # modifier segment on "." into a name and its arguments. So:
   #
-  #   * a key must not contain "__", or it would be read as modifiers. A "."
-  #     or further ":" in a key is inert: the key is everything after the
-  #     first colon and is never split again.
+  #   * a key must not contain "__", or it would be read as modifiers. A
+  #     single "_" is safe, and so is a ".". The client never splits a key
+  #     again after the first colon, so a further ":" would be inert to the
+  #     client; this module is deliberately stricter there and rejects it.
   #   * a modifier name or argument must not contain "." (or "__"), or it
   #     would arrive as two parts, e.g. "1.5s" as arguments "1" and "5s".
   #
   # Modifier arguments may start with a digit ("500ms", "4s"); names and
   # keys start with a letter.
-  @key_format ~r/\A[A-Za-z][A-Za-z0-9.-]*\z/
+  @key_format ~r/\A[A-Za-z][A-Za-z0-9._-]*\z/
   @modifier_name_format ~r/\A[A-Za-z][A-Za-z0-9-]*\z/
   @argument_format ~r/\A[A-Za-z0-9][A-Za-z0-9-]*\z/
 
-  @typedoc "A modifier: a bare name, or a name with one argument."
-  @type modifier :: atom() | String.t() | {atom() | String.t(), String.t()}
+  @typedoc """
+  A modifier: a bare name, a name with one argument, or a name with several
+  arguments (`debounce: ["500ms", "leading"]`).
+  """
+  @type modifier ::
+          atom()
+          | String.t()
+          | {atom() | String.t(), String.t() | [String.t()]}
 
   @type option :: {:key, String.t() | atom()} | {:modifiers, [modifier()]}
 
@@ -106,21 +117,42 @@ defmodule Datastar.Attribute do
   def bare_attributes, do: @bare_attributes
 
   @doc """
+  The Datastar action names `action/3` accepts, pinned to v1.0.4.
+
+  ## Examples
+
+      iex> :query in Datastar.Attribute.actions()
+      true
+
+  """
+  @spec actions() :: [atom()]
+  def actions, do: @verbs
+
+  @doc """
   Builds a `{name, value}` attribute tuple for `plugin`.
 
   Options: `:key` (the part after the colon) and `:modifiers` (a list of bare
-  names or `{name, argument}` pairs, appended in order after `__`). A `nil`
-  value becomes `""`, for attributes whose presence is the whole signal.
+  names, `{name, argument}` pairs or `{name, [argument, ...]}` pairs, appended
+  in order after `__`). A list of arguments is joined with `"."`, as in
+  `debounce: ["500ms", "leading"]`; each argument is validated on its own, so
+  none may contain a `.`. An empty argument list is rejected: use the bare
+  name for a modifier without arguments. A `nil` value becomes `""`, for
+  attributes whose presence is the whole signal.
 
   Raises `ArgumentError` for an unknown plugin, a `:key` on a bare attribute,
-  a malformed key or modifier, or a value containing CR, LF or NUL, any of
-  which would either be ignored by the client or forge an attribute boundary.
+  a malformed key or modifier, or a value containing CR, LF or NUL. Those
+  three are rejected for consistency with the dataline-safety rule
+  `Datastar.Validate.single_line!/1` enforces throughout this library, and
+  because a newline in an attribute value is never intentional.
   The value is otherwise returned untouched; the renderer escapes it for HTML.
 
   ## Examples
 
       iex> Datastar.Attribute.attribute("on", "f()", key: "click", modifiers: [debounce: "500ms"])
       {"data-on:click__debounce.500ms", "f()"}
+
+      iex> Datastar.Attribute.attribute("on", "f()", key: "click", modifiers: [debounce: ["500ms", "leading"]])
+      {"data-on:click__debounce.500ms.leading", "f()"}
 
       iex> Datastar.Attribute.attribute(:ignore, nil)
       {"data-ignore", ""}
@@ -139,8 +171,6 @@ defmodule Datastar.Attribute do
 
     {name, validate_value!(value)}
   end
-
-  @verbs [:get, :post, :put, :patch, :delete]
 
   @doc """
   Builds a `data-on:<event>` attribute — the event comes after the
@@ -200,6 +230,10 @@ defmodule Datastar.Attribute do
   string. HTML escaping remains the renderer's job, as for every value
   this module returns.
 
+  `opts` is a reserved options slot: it currently accepts nothing (any
+  option raises `ArgumentError`), so that a later option is not an arity
+  change.
+
   Compose it into a handler:
 
       iex> Datastar.Attribute.on(:click, Datastar.Attribute.action(:put, "/items/42"))
@@ -237,7 +271,7 @@ defmodule Datastar.Attribute do
     unless plugin in @plugins or plugin in @bare_attributes do
       raise ArgumentError,
             "unknown Datastar plugin #{inspect(plugin)}; " <>
-              "the client ignores an unknown plugin in silence. Known plugins: " <>
+              "the client ignores an unknown plugin in silence. Known plugins and bare attributes: " <>
               Enum.join(@plugins ++ @bare_attributes, ", ")
     end
 
@@ -262,7 +296,16 @@ defmodule Datastar.Attribute do
 
   defp key_part(nil), do: ""
   defp key_part(key) when is_atom(key), do: key_part(Atom.to_string(key))
-  defp key_part(key) when is_binary(key), do: ":" <> validate_format!(:key, key, @key_format)
+
+  defp key_part(key) when is_binary(key) do
+    if String.contains?(key, "__") do
+      raise ArgumentError,
+            "invalid key #{inspect(key, limit: 5)}; a key must not contain \"__\", " <>
+              "which the client reads as the start of a modifier"
+    end
+
+    ":" <> validate_format!(:key, key, @key_format)
+  end
 
   defp key_part(other) do
     raise ArgumentError, "key must be an atom or binary, got: #{inspect(other, limit: 5)}"
@@ -270,6 +313,9 @@ defmodule Datastar.Attribute do
 
   defp modifier_part(modifiers) when is_list(modifiers) do
     Enum.map_join(modifiers, "", fn
+      {name, arguments} when is_list(arguments) ->
+        "__" <> modifier_name!(name) <> "." <> modifier_arguments!(name, arguments)
+
       {name, argument} ->
         "__" <> modifier_name!(name) <> "." <> modifier_argument!(argument)
 
@@ -284,6 +330,15 @@ defmodule Datastar.Attribute do
 
   defp modifier_name!(name) when is_atom(name), do: modifier_name!(Atom.to_string(name))
   defp modifier_name!(name), do: validate_format!(:modifier, name, @modifier_name_format)
+
+  defp modifier_arguments!(name, []) do
+    raise ArgumentError,
+          "modifier #{inspect(name, limit: 5)} needs at least one argument when given a " <>
+            "list; use the bare name for a modifier without arguments"
+  end
+
+  defp modifier_arguments!(_name, arguments),
+    do: Enum.map_join(arguments, ".", &modifier_argument!/1)
 
   defp modifier_argument!(argument),
     do: validate_format!(:modifier_argument, argument, @argument_format)

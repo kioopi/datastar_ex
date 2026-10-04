@@ -13,6 +13,11 @@ defmodule Datastar.AttributePluginsTest do
   #   grep -oE 'm\(\{name:"[a-zA-Z-]+"' <bundle> | sed 's/.*name:"//;s/"//' | sort -u
   #   grep -oE 'j\("[a-zA-Z-]+"\)'      <bundle> | sed 's/j("//;s/")//'   | sort -u
   #
+  # Actions are registered as `he("get","GET",!1)`, `he("query","QUERY")`, ...
+  # (the helper's name is minified, so re-derive from the call shape):
+  #
+  #   grep -oE 'he\("[a-z]+"' <bundle> | sed 's/he("//;s/"//' | sort -u
+  #
   # Asserting the registration form (not a bare quoted name) matters: the
   # string "ignore" appears in the bundle for reasons unrelated to plugins.
   setup_all do
@@ -35,7 +40,15 @@ defmodule Datastar.AttributePluginsTest do
     end
   end
 
+  test "every pinned action is registered as an action in the pinned bundle", %{bundle: bundle} do
+    for action <- Datastar.Attribute.actions() do
+      assert String.contains?(bundle, ~s|he("#{action}"|),
+             "action #{inspect(action)} is not registered in the pinned v1.0.4 bundle"
+    end
+  end
+
   test "the pinned lists are the expected size and disjoint" do
+    assert Enum.count(Datastar.Attribute.actions()) == 6
     assert Enum.count(Datastar.Attribute.plugins()) == 17
     assert Enum.count(Datastar.Attribute.bare_attributes()) == 4
 

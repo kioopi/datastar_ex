@@ -90,6 +90,49 @@ defmodule Datastar.AttributeTest do
       end
     end
 
+    test "accepts a single underscore in a key, which the client never splits on" do
+      assert Attribute.attribute("on", "f()", key: "my_event") == {"data-on:my_event", "f()"}
+
+      assert Attribute.attribute(:signals, "{}", key: "font_size") ==
+               {"data-signals:font_size", "{}"}
+
+      assert Attribute.on("my_event", "f()") == {"data-on:my_event", "f()"}
+    end
+
+    test "still rejects a double underscore anywhere in a key" do
+      for bad <- ["a__b", "a___b", "ab__", "a_b__c"] do
+        assert_raise ArgumentError, fn -> Attribute.attribute("on", "f()", key: bad) end
+      end
+    end
+
+    test "accepts a multi-argument modifier given as a list" do
+      assert Attribute.attribute("on", "f()",
+               key: "click",
+               modifiers: [debounce: ["500ms", "leading"]]
+             ) ==
+               {"data-on:click__debounce.500ms.leading", "f()"}
+
+      assert Attribute.on(:click, "f()", [{"duration", ["1s", "leading"]}, :once]) ==
+               {"data-on:click__duration.1s.leading__once", "f()"}
+    end
+
+    test "a one-element argument list equals the single-argument form" do
+      assert Attribute.on(:click, "f()", debounce: ["500ms"]) ==
+               Attribute.on(:click, "f()", debounce: "500ms")
+    end
+
+    test "rejects an element of an argument list that contains a dot" do
+      assert_raise ArgumentError, fn ->
+        Attribute.on(:click, "f()", debounce: ["500ms", "1.5s"])
+      end
+    end
+
+    test "rejects an empty argument list; use the bare name instead" do
+      assert_raise ArgumentError, ~r/at least one argument/, fn ->
+        Attribute.on(:click, "f()", debounce: [])
+      end
+    end
+
     test "accepts a dot in a key: the client never splits a key on a dot" do
       assert Attribute.attribute("on", "f()", key: "a.b") == {"data-on:a.b", "f()"}
     end
@@ -162,6 +205,7 @@ defmodule Datastar.AttributeTest do
       assert Attribute.action(:post, "/x") == "@post('/x')"
       assert Attribute.action(:patch, "/x") == "@patch('/x')"
       assert Attribute.action(:delete, "/x") == "@delete('/x')"
+      assert Attribute.action(:query, "/search") == "@query('/search')"
     end
 
     test "a single quote in the URL cannot close the JS string" do

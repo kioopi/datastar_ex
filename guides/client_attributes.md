@@ -52,12 +52,15 @@ A few `data-*` attributes are not plugins at all, so they take no key:
     ignore  ignore-morph  nonce  preserve-attr
 
 The `@`-actions available inside expressions are `@get`, `@post`,
-`@put`, `@patch`, `@delete`, `@peek`, `@setAll` and `@toggleAll`.
+`@put`, `@patch`, `@query`, `@delete`, `@peek`, `@setAll` and `@toggleAll`.
 
-These lists are pinned and checked against the vendored client bundle by
-this library's test suite. `Datastar.Attribute.plugins/0` and
-`Datastar.Attribute.bare_attributes/0` return them, and are the source of
-truth if this page ever lags a client upgrade.
+The plugin, bare-attribute and HTTP-action lists are pinned and checked
+against the vendored client bundle by this library's test suite (`@peek`,
+`@setAll` and `@toggleAll` are not HTTP actions and are not covered by
+that check). `Datastar.Attribute.plugins/0`,
+`Datastar.Attribute.bare_attributes/0` and `Datastar.Attribute.actions/0`
+return them, and are the source of truth if this page ever lags a client
+upgrade.
 
 ## Let the library catch it
 
@@ -83,8 +86,14 @@ Modifiers are options:
     iex> Datastar.Attribute.on(:click, "x", debounce: "500ms")
     {"data-on:click__debounce.500ms", "x"}
 
+A modifier with several arguments takes them as a list:
+
+    iex> Datastar.Attribute.on(:input, "x", debounce: ["500ms", "leading"])
+    {"data-on:input__debounce.500ms.leading", "x"}
+
 The client splits a modifier on `.` into its name and arguments, so
-`Datastar.Attribute` rejects a `.` in a modifier name or argument. It
+`Datastar.Attribute` rejects a `.` in a modifier name or in any single
+argument, and an empty argument list (use the bare name instead). It
 allows `.` in a key, because the client takes the key whole; and it
 rejects `__` in a key, because the client would read it as the start of
 a modifier. Bare attributes cannot take a key:
